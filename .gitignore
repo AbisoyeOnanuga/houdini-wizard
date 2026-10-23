@@ -1,0 +1,7 @@
+hacktoberfest-week3/
+
+__pycache__/
+*.pyc
+.venv/
+.env
+.entire/settings.local.json
