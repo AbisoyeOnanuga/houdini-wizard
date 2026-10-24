@@ -1,0 +1,32 @@
+= Box =
+
+#type: node
+#context: sop
+#internal: box
+
+"""Creates a cube or six-sided rectangular box."""
+
+The Box node creates cube geometry.
+
+@parameters
+
+    Primitive Type:
+        #channels: /type
+
+        Type of geometry to create.
+
+        Polygon:
+            This line is a menu choice and is not its own heading.
+
+    Size:
+        #channels: /sizex /sizey /sizez
+
+        Size of the box along xyz axes.
+
+    Uniform Scale:
+        #channels: /scale
+
+        Uniform scaling.
+
+@related
+    - [Node:sop/bound]

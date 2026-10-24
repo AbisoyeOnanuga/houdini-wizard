@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shelfDocument>
+  <!-- This file is for Houdini's toolbar folder. The script calls the package installed into hython. -->
+  <toolshelf name="houdini_wizard" label="Houdini Wizard">
+    <memberTool name="houdini_wizard_card"/>
+  </toolshelf>
+  <tool name="houdini_wizard_card" label="Section card" icon="BUTTONS_help">
+    <helpText><![CDATA[Quote the help section for the selected node, parameter, or cook error.]]></helpText>
+    <script scriptType="python"><![CDATA[
+import houdini_wizard.shelf as shelf
+shelf.show_card()
+]]></script>
+  </tool>
+</shelfDocument>
