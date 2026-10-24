@@ -1,0 +1,25 @@
+let's start the service again since I have tailscale connected, so we can test it
+
+---
+
+it's not loggin in on my phone, but worked in cursor browser. same pin. page loads to login page. and noticed when I tapped show, it did not show the pin entered in the input-box (only on my phone browser)
+
+---
+
+I added gemini api, but think adding some ollama would be good. only have two ollama models locally, but one is slow so would like to add the faster one to this as well so we have that and the gemini to test with
+
+---
+
+I don't want to interfere with this app, I am concurrently running another app and testing it here @c:\Users\Administrator\.cursor\projects\d-Documents-vscode-abisoyeo\terminals\7.txt:25-27 so maybe we don't use port 8787 for now?
+
+---
+
+now models are connected, can it be tested. I've updated the folder to the project I want to use for API, UI and Review. all the same folder for the same project I will test the agent team with
+
+---
+
+so to confirm it is working and is able to take tasks and execute on them (API, Review, UI)? I will test it, but you don't need to run anything again. then the documentation does not explain those 3 roles so we know how to use them. finally for the chosen folder where agents are working on an app, can I use the open port that the app is currently running in npm dev and test that updated version the agent just worked on so I see the current update
+
+---
+
+having trouble reaching the trail sketch 5173 port on the phone so I can see the local updates.
