@@ -2,6 +2,8 @@
 
 Shelf click for the node you already have selected. The card quotes one section from the help that shipped with this Houdini. You still change the node.
 
+![Flow](docs/flow.svg)
+
 ```mermaid
 flowchart TD
   activeNode["active network node"] --> wizard["houdini-wizard shelf"]

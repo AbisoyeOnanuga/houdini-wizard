@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="760" viewBox="0 0 880 760">
+  <rect width="880" height="760" fill="#f7f4ef"/>
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" fill="#1c1917">
+    <rect x="250" y="24" width="380" height="52" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="440" y="56" text-anchor="middle">active network node</text>
+
+    <rect x="250" y="116" width="380" height="52" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="440" y="148" text-anchor="middle">houdini-wizard shelf</text>
+
+    <rect x="250" y="208" width="380" height="52" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="440" y="240" text-anchor="middle">installed help file</text>
+
+    <rect x="230" y="300" width="420" height="52" rx="8" fill="#fff7ed" stroke="#9a3412"/>
+    <text x="440" y="332" text-anchor="middle">Gemma picks one heading</text>
+
+    <rect x="36" y="412" width="360" height="64" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="216" y="449" text-anchor="middle">wizard quotes that help section</text>
+
+    <rect x="484" y="412" width="360" height="64" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="664" y="440" text-anchor="middle">no match lists headings</text>
+    <text x="664" y="462" text-anchor="middle">the user can open</text>
+
+    <rect x="170" y="536" width="540" height="52" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="440" y="568" text-anchor="middle">Temporal workflow keeps this card</text>
+
+    <rect x="230" y="648" width="420" height="52" rx="8" fill="#fff" stroke="#1c1917"/>
+    <text x="440" y="680" text-anchor="middle">user updates the active node</text>
+  </g>
+  <g stroke="#1c1917" stroke-width="2" fill="none">
+    <path d="M440 76 V116"/>
+    <path d="M440 168 V208"/>
+    <path d="M440 260 V300"/>
+    <path d="M440 352 V382 H216 V412"/>
+    <path d="M440 382 H664 V412"/>
+    <path d="M216 476 V506 H440 V536"/>
+    <path d="M664 476 V506 H440"/>
+    <path d="M440 588 V648"/>
+  </g>
+  <g fill="#1c1917">
+    <polygon points="440,116 434,106 446,106"/>
+    <polygon points="440,208 434,198 446,198"/>
+    <polygon points="440,300 434,290 446,290"/>
+    <polygon points="216,412 210,402 222,402"/>
+    <polygon points="664,412 658,402 670,402"/>
+    <polygon points="440,536 434,526 446,526"/>
+    <polygon points="440,648 434,638 446,638"/>
+  </g>
+</svg>
