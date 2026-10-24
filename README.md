@@ -38,27 +38,40 @@ To use another Gemma tag, set `HOUDINI_WIZARD_MODEL` before the worker starts.
 
 ## Temporal
 
-One Python workflow retries the heading pick and restores this card. A new cook error is a new card. This is the Temporal Python SDK, not the multi-process agent harness.
+The feature is one durable Workflow, written with the Temporal Python SDK. It is not the multi-process agent harness, and the CLI is not the feature. The CLI only runs a local Temporal Service so that workflow has somewhere to live.
 
-The Temporal CLI is separate from the Python package. Install it, then start the dev server:
+`CardWorkflow` does two things:
+
+- The heading pick is an Activity with three attempts. If Gemma fails, Temporal runs that call again. A heading that was already named never becomes an Activity.
+- The card's id is a Workflow id. The same node and the same cook error reuse that id (`REJECT_DUPLICATE`). The next shelf click returns the stored result and does not call Gemma again. A new cook error is a new id, and a new card.
+
+Open [http://localhost:8233](http://localhost:8233) while the dev server is running. That Web UI is the history of the card: the Workflow, the Activity, and the result. That page is the thing to show in the write-up.
+
+### Where the CLI installs
+
+`winget install --id Temporal.TemporalCLI -e` installs version 1.9.1 as a portable zip, not an MSI and not into Houdini or this repo. WinGet unpacks `temporal.exe` under your user profile (`%LOCALAPPDATA%\Microsoft\WinGet\Packages\`) and puts a `temporal` command on your PATH. It does not change Houdini. Open a new PowerShell window after the install so the command is visible. Confirm with `where.exe temporal`.
+
+Docs: [Run a development server](https://docs.temporal.io/develop/run-a-development-server).
+
+Start it and leave that window open:
 
 ```powershell
-winget install --id Temporal.TemporalCLI -e
-temporal server start-dev
+temporal server start-dev --db-filename D:\Documents\vscode\houdini-wizard\.temporal\dev.db
 ```
 
-CLI docs: https://docs.temporal.io/cli
+That process is the whole local service: `localhost:7233` for the SDK, and the Web UI at `http://localhost:8233`. The `--db-filename` flag stores the card in SQLite, so quitting Houdini does not drop it. Without that flag the server keeps the history in memory only, and stopping the server erases the cards. Ctrl+C stops the server.
 
-In a second terminal, from this repo:
+### The worker
+
+The worker is our Python process, already installed in `.venv`. It is not part of the CLI. It connects to `localhost:7233` and waits on the task queue `houdini-wizard`. The shelf starts the Workflow. The worker runs it, including the Gemma Activity.
+
+In a second terminal:
 
 ```powershell
-py -3 -m venv .venv
-.venv\Scripts\python -m pip install -e .
-.venv\Scripts\python -m houdini_wizard.fixture
-.venv\Scripts\python -m houdini_wizard.workflow
+D:\Documents\vscode\houdini-wizard\.venv\Scripts\python -m houdini_wizard.workflow
 ```
 
-The fixture quotes Size, lists headings for an error that names none, and restores both cards from the same workflow id. The worker prints `Houdini wizard worker on houdini-wizard` and stays running.
+It prints `Houdini wizard worker on houdini-wizard` and stays running. The shelf can show a quote with both of these stopped. Restore, and a Gemma pick, need the server and the worker.
 
 ## Install the shelf in Houdini 22
 
@@ -80,6 +93,6 @@ Restart Houdini. The shelf tab is **Houdini Wizard**. The tool is **Section card
 4. A cook error that does not name a heading asks Gemma, inside the Temporal workflow.
 5. If nothing matches, the dialog lists the file's headings. You open one.
 
-Ollama, `temporal server start-dev`, and the worker need to be running for the Gemma pick and for restore after a quit. If Temporal is down, the shelf still shows the quote and says the card was not stored.
+Ollama, the dev server, and the worker need to be running for the Gemma pick and for restoring a card after Houdini quits. If Temporal is down, the shelf still shows the quote and says the card was not stored.
 
 Entire records this build so a later search can explain why the shelf skips Gemma. The click does not call Entire.
