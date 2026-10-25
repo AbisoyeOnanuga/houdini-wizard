@@ -6,8 +6,6 @@ Pictures, menu choices, and number ranges come from this install.
 
 from __future__ import annotations
 
-import html
-
 from houdini_wizard.context import build_study, image_bytes
 from houdini_wizard.help_file import Section
 
@@ -121,6 +119,7 @@ def _window(widgets, core, gui, hou):
     dialog.outline.currentRowChanged.connect(lambda row: _on_outline(dialog, row))
 
     dialog.scroll = widgets.QScrollArea()
+    dialog.scroll.setObjectName("guideScroll")
     dialog.scroll.setWidgetResizable(True)
     dialog.scroll.setFrameShape(widgets.QFrame.NoFrame)
     dialog.scroll.setHorizontalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
@@ -293,15 +292,7 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
             dialog.tabs.addTab(page, label)
             dialog._folder_index[index] = index
             _outline_item(dialog, f"tab:{index}", label, 0)
-            for row in rows:
-                card = _parameter(widgets, row)
-                page_layout.addWidget(card)
-                key = f"parm:{row['name']}"
-                dialog._anchors[key] = card
-                dialog._parm_folder[key] = index
-                _outline_item(dialog, key, row["name"], 1)
-                if row.get("selected"):
-                    chosen = key
+            chosen = _add_parameters(dialog, page_layout, rows, index) or chosen
             page_layout.addStretch(1)
         dialog._anchors["section:parameters"] = dialog.tabs
         layout.addWidget(dialog.tabs)
@@ -309,15 +300,7 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
             dialog.tabs.setCurrentIndex(dialog._parm_folder.get(chosen, 0))
     else:
         rows = groups[0][1] if groups else []
-        for row in rows:
-            card = _parameter(widgets, row)
-            layout.addWidget(card)
-            key = f"parm:{row['name']}"
-            dialog._anchors[key] = card
-            dialog._parm_folder[key] = ""
-            _outline_item(dialog, key, row["name"], 1)
-            if row.get("selected"):
-                chosen = key
+        chosen = _add_parameters(dialog, layout, rows, "") or chosen
         if not rows:
             empty = widgets.QLabel("This help file has no parameter list.")
             empty.setWordWrap(True)
@@ -358,13 +341,45 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
 
 
 def _groups(parameters: list[dict]) -> list[tuple[str, list[dict]]]:
+    """One tab per top-level folder. Nested folders stay inside that tab."""
     groups: list[tuple[str, list[dict]]] = []
     for row in parameters:
-        folder = row.get("folder") or ""
+        path = tuple(row.get("groups") or ())
+        folder = path[0] if path else (row.get("folder") or "")
         if not groups or groups[-1][0] != folder:
             groups.append((folder, []))
         groups[-1][1].append(row)
     return groups
+
+
+def _add_parameters(dialog, layout, rows: list[dict], tab) -> str:
+    """Lay parameters in pane order, with a heading for each nested folder."""
+    widgets = dialog._widgets
+    chosen = ""
+    shown: tuple[str, ...] = ()
+    for row in rows:
+        path = tuple(row.get("groups") or ())
+        nested = path[1:]
+        shared = 0
+        while shared < len(shown) and shared < len(nested) and shown[shared] == nested[shared]:
+            shared += 1
+        for index in range(shared, len(nested)):
+            head = widgets.QLabel(nested[index])
+            head.setObjectName("folderHead")
+            head.setContentsMargins((index + 1) * 14, 10, 0, 0)
+            layout.addWidget(head)
+            _outline_item(dialog, f"folder:{tab}:{nested[index]}", nested[index], index + 1)
+        shown = nested
+        depth = len(nested)
+        card = _parameter(widgets, row, depth)
+        layout.addWidget(card)
+        key = f"parm:{row['name']}:{path}"
+        dialog._anchors[key] = card
+        dialog._parm_folder[key] = tab
+        _outline_item(dialog, key, row["name"], depth + 1)
+        if row.get("selected"):
+            chosen = key
+    return chosen
 
 
 def _mark(dialog, key: str, widget, label: str, depth: int = 0) -> None:
@@ -403,12 +418,12 @@ def _activate(dialog, key: str) -> None:
         dialog.scroll.ensureWidgetVisible(target, 0, 28)
 
 
-def _parameter(widgets, row: dict):
+def _parameter(widgets, row: dict, depth: int = 0):
     card = widgets.QFrame()
     card.setFrameShape(widgets.QFrame.NoFrame)
     card.setObjectName("selected" if row.get("selected") else "parm")
     layout = widgets.QVBoxLayout(card)
-    layout.setContentsMargins(10, 7, 10, 7)
+    layout.setContentsMargins(10 + depth * 16, 7, 10, 7)
     layout.setSpacing(3)
     title = widgets.QLabel(row["name"])
     title.setObjectName("parmName")
@@ -429,11 +444,10 @@ def _parameter(widgets, row: dict):
         now.setWordWrap(True)
         layout.addWidget(now)
     for option in row.get("options") or []:
-        text = option["name"]
+        marker = "Now" if option.get("current") else "•"
+        text = f"{marker}  {option['name']}"
         if option.get("meaning"):
-            text = f"{option['name']}  —  {option['meaning']}"
-        if option.get("current"):
-            text = f"Now   {text}"
+            text = f"{text}  —  {option['meaning']}"
         line = widgets.QLabel(text)
         line.setObjectName("optionNow" if option.get("current") else "option")
         line.setWordWrap(True)
@@ -476,6 +490,8 @@ def _figure_pixmaps(dialog, hfs: str, figure: dict):
             continue
         shown = True
         pic = widgets.QLabel()
+        pic.setProperty("wikiPath", path)
+        pic.setProperty("hfs", hfs)
         pic.setPixmap(pixmap)
         row.addWidget(pic)
     row.addStretch(1)
@@ -534,30 +550,29 @@ def _callout(widgets, text: str, name: str):
 
 
 def _help_link(dialog, label: str, path: str):
-    widgets = dialog._widgets
-    core = dialog._core
-    link_color = "#8eb7ff" if dialog._theme == "dark" else "#1565c0"
-    safe = html.escape(label)
-    link = widgets.QLabel(
-        f'<a href="{html.escape(path)}" style="color:{link_color}; text-decoration:underline;">{safe}</a>'
-    )
-    link.setObjectName("helpLink")
-    link.setTextFormat(core.Qt.RichText)
-    link.setTextInteractionFlags(core.Qt.TextBrowserInteraction)
-    link.setOpenExternalLinks(False)
-    link.setCursor(dialog._gui.QCursor(core.Qt.PointingHandCursor))
-    link.linkActivated.connect(lambda url, dialog=dialog: _open_help(dialog, url))
-    return link
+    button = dialog._widgets.QPushButton(label)
+    button.setObjectName("helpLink")
+    button.setCursor(dialog._gui.QCursor(dialog._core.Qt.PointingHandCursor))
+    button.setFlat(True)
+    button.clicked.connect(lambda _checked=False, path=path, dialog=dialog: _open_help(dialog, path))
+    return button
 
 
 def _open_help(dialog, path: str) -> None:
+    """Open the help page as a new tab in the help browser, not a new window."""
     hou = getattr(dialog, "_hou", None)
     ui = getattr(hou, "ui", None) if hou is not None else None
-    display = getattr(ui, "displayHelp", None) if ui is not None else None
-    if not path or not callable(display):
+    if hou is None or ui is None or not path:
         return
     try:
-        display(path)
+        desktop = ui.curDesktop()
+        browsers = [tab for tab in desktop.paneTabs() if tab.type() == hou.paneTabType.HelpBrowser and not tab.isFloating()]
+        if browsers:
+            tab = browsers[-1].pane().createTab(hou.paneTabType.HelpBrowser)
+            tab.displayHelpPath(path)
+            tab.setIsCurrentTab()
+            return
+        desktop.displayHelpPath(path)
     except Exception:
         return
 
@@ -620,6 +635,8 @@ def _toggle_theme(dialog) -> None:
 
 
 def _restyle(dialog) -> None:
+    bar = dialog.scroll.verticalScrollBar()
+    position = bar.value()
     percent = int(round(dialog._zoom * 100))
     dialog.setStyleSheet(_style(dialog._theme, dialog._zoom))
     dialog.zoom_label.setText(f"{percent}%")
@@ -628,8 +645,20 @@ def _restyle(dialog) -> None:
         dialog.zoom_slider.setValue(percent)
         dialog.zoom_slider.blockSignals(False)
     dialog.theme_button.setText("Dark" if dialog._theme == "light" else "Light")
-    if dialog._study:
-        _fill(dialog, dialog._study, reveal=False)
+    _rescale_figures(dialog)
+    bar.setValue(position)
+
+
+def _rescale_figures(dialog) -> None:
+    widgets = dialog._widgets
+    for pic in dialog.findChildren(widgets.QLabel):
+        path = pic.property("wikiPath")
+        hfs = pic.property("hfs")
+        if not path or not hfs:
+            continue
+        pixmap = _load_pixmap(dialog, str(hfs), str(path))
+        if pixmap is not None:
+            pic.setPixmap(pixmap)
 
 
 def _empty_layout(layout) -> None:
@@ -742,6 +771,7 @@ def _style(theme: str, zoom: float) -> str:
             "#f3e4d4",
         )
         link = "#1565c0"
+        scroll = "#5c5146"
     else:
         bg, fg, muted, accent, card, line, nav, select, call = (
             "#241f1b",
@@ -755,6 +785,7 @@ def _style(theme: str, zoom: float) -> str:
             "#3a2a22",
         )
         link = "#8eb7ff"
+        scroll = "#efe6d6"
     body = _px(zoom, 14)
     return f"""
 QDialog {{ background: {bg}; color: {fg}; }}
@@ -769,6 +800,7 @@ QLabel#helpLink {{ font-size: {_px(zoom, 15)}px; font-weight: 600; }}
 QLabel#helpLink a {{ color: {link}; text-decoration: underline; }}
 QLabel#intro {{ color: {muted}; font-size: {_px(zoom, 15)}px; }}
 QLabel#section {{ color: {accent}; font-size: {_px(zoom, 15)}px; font-weight: 600; padding-top: 6px; }}
+QLabel#folderHead {{ color: {accent}; font-size: {_px(zoom, 14)}px; font-weight: 600; }}
 QLabel#parmName {{ font-size: {_px(zoom, 16)}px; font-weight: 600; }}
 QLabel#meaning, QLabel#step {{ color: {fg}; font-size: {_px(zoom, 15)}px; }}
 QLabel#range {{ color: {accent}; font-size: {_px(zoom, 14)}px; }}
@@ -811,4 +843,17 @@ QSlider::handle:horizontal {{
     width: 14px; height: 14px; margin: -5px 0; background: {accent}; border-radius: 7px;
 }}
 QSlider::handle:horizontal:hover {{ background: {fg}; }}
+QPushButton#helpLink {{
+    background: transparent; color: {link}; border: none; border-radius: 0;
+    padding: 1px 0; font-size: {_px(zoom, 15)}px; font-weight: 600; text-align: left;
+}}
+QPushButton#helpLink:hover {{ background: transparent; color: {link}; text-decoration: underline; }}
+QScrollArea#guideScroll QScrollBar:vertical {{ background: transparent; width: 12px; margin: 0; }}
+QScrollArea#guideScroll QScrollBar::handle:vertical {{
+    background: {scroll}; border-radius: 6px; min-height: 28px; margin: 2px;
+}}
+QScrollArea#guideScroll QScrollBar::add-line:vertical,
+QScrollArea#guideScroll QScrollBar::sub-line:vertical {{ height: 0; background: transparent; }}
+QScrollArea#guideScroll QScrollBar::add-page:vertical,
+QScrollArea#guideScroll QScrollBar::sub-page:vertical {{ background: transparent; }}
 """

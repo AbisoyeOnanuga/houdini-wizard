@@ -52,6 +52,7 @@ class Section:
     options: tuple[tuple[str, str], ...] = ()
     anchor: str = ""
     contentfrom: str = ""
+    groups: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -63,6 +64,7 @@ class Section:
             "options": [{"name": name, "body": body} for name, body in self.options],
             "anchor": self.anchor,
             "contentfrom": self.contentfrom,
+            "groups": list(self.groups),
         }
 
 
@@ -85,17 +87,32 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
     current: _Draft | None = None
     param_indent: int | None = None
     block = "title"
-    folder_name = ""
-    folder_content_indent: int | None = None
+    folder_stack: list[dict] = []
 
-    def start(heading: str, role: str) -> _Draft:
+    def start(heading: str, role: str, groups: tuple[str, ...] = ()) -> _Draft:
         nonlocal current
-        folder = folder_name if role == "parameter" else ""
+        folder = groups[0] if role == "parameter" and groups else ""
         if current is not None:
             current.option = None
-        current = _Draft(heading, role, folder)
+        current = _Draft(heading, role, folder, groups if role == "parameter" else ())
         sections.append(current)
         return current
+
+    def place_parameter(indent: int) -> None:
+        """Pop nested folders when a parameter returns to an outer indent."""
+        while folder_stack:
+            top = folder_stack[-1]
+            if top["content_indent"] is not None and indent < top["content_indent"]:
+                folder_stack.pop()
+                continue
+            if top["content_indent"] is None and top["child_indent"] is not None and indent < top["child_indent"]:
+                folder_stack.pop()
+                continue
+            if top["content_indent"] is None:
+                top["content_indent"] = indent
+                if len(folder_stack) >= 2 and folder_stack[-2]["child_indent"] is None:
+                    folder_stack[-2]["child_indent"] = indent
+            break
 
     for raw in text.splitlines():
         line = raw.replace("\t", "    ")
@@ -108,29 +125,32 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
         if stripped == "@parameters":
             block = "parameters"
             param_indent = None
-            folder_name = ""
-            folder_content_indent = None
+            folder_stack.clear()
             continue
         if stripped in {"@inputs", "@outputs"}:
             block = stripped[1:]
             param_indent = None
+            folder_stack.clear()
             start(stripped[1:].capitalize(), block)
             continue
         if stripped.startswith("@related"):
             block = "related"
             param_indent = None
+            folder_stack.clear()
             start("Related", "related")
             continue
         heading = _HEADING.match(stripped)
         if heading and line.lstrip() == stripped:
             # A folder such as `== Code ==` stays inside @parameters.
-            # The next Label: at the left edge is still a parameter.
+            # More equals signs nest inside the folder above, matching the parameter pane.
             param_indent = None
             title = heading.group(2).strip()
             anchor = (heading.group(3) or "").strip()
             if block == "parameters":
-                folder_name = title
-                folder_content_indent = None
+                depth = len(heading.group(1))
+                while folder_stack and folder_stack[-1]["depth"] >= depth:
+                    folder_stack.pop()
+                folder_stack.append({"depth": depth, "name": title, "content_indent": None, "child_indent": None})
                 started = start(title, "folder")
             else:
                 started = start(title, "title" if block == "title" else block)
@@ -141,15 +161,13 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
         if block in {"parameters", "inputs", "outputs"} and label and not stripped.startswith("#") and not stripped.startswith(":"):
             indent = len(label.group(1))
             if param_indent is None or indent <= param_indent:
-                if folder_name:
-                    if folder_content_indent is None:
-                        folder_content_indent = indent
-                    elif indent < folder_content_indent:
-                        folder_name = ""
-                        folder_content_indent = None
-                param_indent = indent if param_indent is None else param_indent
+                if param_indent is None or indent < param_indent:
+                    param_indent = indent
+                if block == "parameters":
+                    place_parameter(indent)
                 role = "parameter" if block == "parameters" else block[:-1]
-                start(label.group(2).strip(), role)
+                groups = tuple(item["name"] for item in folder_stack) if block == "parameters" else ()
+                start(label.group(2).strip(), role, groups)
                 continue
             if current is not None and current.role == "parameter":
                 choice = _Draft(label.group(2).strip(), "option", "")
@@ -195,20 +213,36 @@ def load_path(path: str) -> HelpFile:
     return loaded
 
 
+_OPEN_ZIPS: dict[str, tuple[int, zipfile.ZipFile, set[str]]] = {}
+
+
+def _zip(zip_path: str) -> tuple[zipfile.ZipFile, set[str]]:
+    """Keep one archive open so a node and its related pages share the read."""
+    mtime = _mtime(zip_path)
+    cached = _OPEN_ZIPS.get(zip_path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1], cached[2]
+    if cached is not None:
+        cached[1].close()
+    archive = zipfile.ZipFile(zip_path)
+    names = set(archive.namelist())
+    _OPEN_ZIPS[zip_path] = (mtime, archive, names)
+    return archive, names
+
+
 def load_zip_member(zip_path: str, member: str) -> HelpFile:
     key = (zip_path, member, _mtime(zip_path))
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
-    with zipfile.ZipFile(zip_path) as archive:
-        names = set(archive.namelist())
-        chosen = member
-        if chosen not in names:
-            lowered = {name.lower(): name for name in names}
-            chosen = lowered.get(member.lower().replace("\\", "/"), "")
-        if not chosen:
-            raise FileNotFoundError(member)
-        text = archive.read(chosen).decode("utf-8", errors="replace")
+    archive, names = _zip(zip_path)
+    chosen = member
+    if chosen not in names:
+        lowered = {name.lower(): name for name in names}
+        chosen = lowered.get(member.lower().replace("\\", "/"), "")
+    if not chosen:
+        raise FileNotFoundError(member)
+    text = archive.read(chosen).decode("utf-8", errors="replace")
     loaded = load_text(text, f"{zip_path}:{chosen}")
     _CACHE[key] = loaded
     return loaded
@@ -268,6 +302,7 @@ def resolve_contentfrom(loaded: HelpFile, help_root: str) -> HelpFile:
                 options,
                 section.anchor,
                 "",
+                section.groups,
             )
         )
     return HelpFile(loaded.source, tuple(resolved), loaded.includes)
@@ -297,10 +332,11 @@ def _donor_section(donors: dict[str, HelpFile], zip_path: str, contentfrom: str)
 
 
 class _Draft:
-    def __init__(self, heading: str, role: str, folder: str) -> None:
+    def __init__(self, heading: str, role: str, folder: str, groups: tuple[str, ...] = ()) -> None:
         self.heading = heading
         self.role = role
         self.folder = folder
+        self.groups = tuple(groups)
         self.channels: list[str] = []
         self.lines: list[str] = []
         self.options: list[_Draft] = []
@@ -323,6 +359,7 @@ def _finish(draft: _Draft) -> Section:
         options,
         draft.anchor,
         draft.contentfrom,
+        draft.groups,
     )
 
 

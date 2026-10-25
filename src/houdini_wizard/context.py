@@ -219,6 +219,7 @@ def _parameters(sections, values: dict, selected: str, ranges: dict, tooltips: d
             {
                 "name": section.heading,
                 "folder": section.folder,
+                "groups": list(section.groups),
                 "meaning": meaning,
                 "current": current,
                 "selected": bool(selected) and selected.lower() == section.heading.lower(),

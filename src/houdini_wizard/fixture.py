@@ -189,6 +189,17 @@ def check_install() -> None:
     if translate.folder != "Transformation" or u_range.folder:
         fail(f"parameter tabs were mixed up: Translate={translate.folder!r} U Range={u_range.folder!r}")
     print("UV Project: Transformation stays its own tab, and U Range is not pulled into it.")
+    arranged = load_zip_member(str(INSTALL_ZIP), "sop/uvlayout.txt")
+    edges = next(section for section in arranged.sections if section.heading == "Separator edges")
+    areas = next(section for section in arranged.sections if section.heading == "Scale Island to Match Their Surface Areas")
+    if edges.groups != ("Islands To Pack", "Overrides", "Connectivity"):
+        fail(f"Connectivity was not kept inside Overrides: {edges.groups}")
+    if areas.groups != ("Islands To Pack",):
+        fail(f"Scale Island left its parent folder: {areas.groups}")
+    align = next(section for section in arranged.sections if section.heading == "Axis Alignment")
+    if "By Island Symmetry (default)" not in [name for name, _body in align.options]:
+        fail("Axis Alignment lost the menu choices from the help file")
+    print("UV Layout: Overrides stays inside Islands To Pack.")
     print()
 
     from houdini_wizard.help_file import installed_help
