@@ -12,6 +12,8 @@ from houdini_wizard.panel import show_panel
 from houdini_wizard.pick import decide, explain_context, finish, pick_heading
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
+_seen = {"signature": None}
+
 
 def show_card() -> None:
     import hou
@@ -35,7 +37,7 @@ def show_card() -> None:
     request = decide(help_file.sections, parm_name, parm_label, error_text)
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     card, note = _store(card_id, request)
-    scene = _scene(node, error_text)
+    scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
     extra = ""
     if request.get("needs_model") and card.get("kind") == "quote":
         try:
@@ -45,15 +47,17 @@ def show_card() -> None:
             extra = explain_context(error_text, study["focus_heading"], study["wires_in"])
         except Exception:
             extra = note
-    show_panel(help_file.sections, scene, card.get("title") or "", extra)
+    focus = card.get("title") or parm_label or ""
+    _seen["signature"] = _signature(node, parm_name, parm_label, error_text)
+    show_panel(help_file.sections, scene, focus, extra, refresh=lambda: _poll(hou))
 
 
-def _selection(hou):
+def _selection(hou, announce: bool = True):
     nodes = list(hou.selectedNodes())
     parm = _selected_parm(hou, nodes[0] if nodes else None)
     node = parm.node() if parm is not None else (nodes[0] if nodes else None)
     if node is None:
-        if hasattr(hou, "ui"):
+        if announce and hasattr(hou, "ui"):
             hou.ui.displayMessage("Select a node, then click the shelf.", title="Houdini wizard")
         return None
     parm_name = parm.name() if parm is not None else ""
@@ -68,15 +72,139 @@ def _selection(hou):
     return node, parm_name, parm_label, error_text
 
 
-def _scene(node, error_text: str) -> dict:
+def _poll(hou):
+    selected = _selection(hou, announce=False)
+    if selected is None:
+        return None
+    node, parm_name, parm_label, error_text = selected
+    signature = _signature(node, parm_name, parm_label, error_text)
+    if signature == _seen["signature"]:
+        return None
+    try:
+        category = node.type().category().name()
+        internal = node.type().nameComponents()[2]
+        hfs = hou.getenv("HFS") or os.environ.get("HFS", "")
+        help_file = installed_help(category, internal, hfs)
+    except Exception:
+        return None
+    _seen["signature"] = signature
+    scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
+    focus = parm_label or ""
+    return help_file.sections, scene, focus, ""
+
+
+def _signature(node, parm_name: str, parm_label: str, error_text: str) -> tuple:
+    try:
+        internal = node.type().nameComponents()[2]
+    except Exception:
+        internal = ""
+    wired = []
+    for row in _ends(node, incoming=True) + _ends(node, incoming=False):
+        wired.append((row.get("label"), row.get("wired")))
+    current = ""
+    if parm_label:
+        current = _values(node).get(parm_label, "")
+    return (node.path(), internal, parm_name, parm_label, error_text.strip(), tuple(wired), current)
+
+
+def _scene(node, error_text: str, hfs: str = "", includes: tuple[str, ...] = (), parm_label: str = "") -> dict:
     return {
         "type_label": _type_label(node),
         "category": node.type().category().name(),
         "path": node.path(),
+        "icon": _icon_name(node),
+        "hfs": hfs,
+        "includes": list(includes),
         "error": error_text,
+        "parm_label": parm_label,
+        "values": _values(node),
+        "ranges": _ranges(node),
         "inputs": _ends(node, incoming=True),
         "outputs": _ends(node, incoming=False),
     }
+
+
+def _icon_name(node) -> str:
+    try:
+        return node.type().icon() or ""
+    except Exception:
+        return ""
+
+
+def _values(node) -> dict:
+    found: dict[str, str] = {}
+    try:
+        parms = node.parms()
+    except Exception:
+        return found
+    for parm in parms:
+        try:
+            label = parm.parmTemplate().label()
+        except Exception:
+            continue
+        if not label or label in found:
+            continue
+        found[label] = _display(parm)
+    return found
+
+
+def _display(parm) -> str:
+    try:
+        template = parm.parmTemplate()
+        kind = template.type()
+        import hou
+
+        if kind == hou.parmTemplateType.Menu:
+            labels = list(parm.menuLabels() or [])
+            index = parm.eval()
+            if isinstance(index, int) and 0 <= index < len(labels):
+                return str(labels[index])
+        if kind == hou.parmTemplateType.Toggle:
+            return "on" if parm.eval() else "off"
+        text = str(parm.evalAsString())
+        return text if len(text) <= 80 else text[:77] + "..."
+    except Exception:
+        return ""
+
+
+def _ranges(node) -> dict:
+    found: dict[str, dict] = {}
+    try:
+        parms = node.parms()
+    except Exception:
+        return found
+    for parm in parms:
+        try:
+            label = parm.parmTemplate().label()
+        except Exception:
+            continue
+        if not label or label in found:
+            continue
+        span = _span(parm)
+        if span:
+            found[label] = span
+    return found
+
+
+def _span(parm) -> dict | None:
+    try:
+        import hou
+
+        template = parm.parmTemplate()
+        if template.type() not in {hou.parmTemplateType.Float, hou.parmTemplateType.Int}:
+            return None
+        low = float(template.minValue())
+        high = float(template.maxValue())
+        if low >= high or abs(low) > 1_000_000 or abs(high) > 1_000_000:
+            return None
+        return {
+            "low": low,
+            "high": high,
+            "low_strict": bool(template.minIsStrict()),
+            "high_strict": bool(template.maxIsStrict()),
+        }
+    except Exception:
+        return None
 
 
 def _type_label(node) -> str:

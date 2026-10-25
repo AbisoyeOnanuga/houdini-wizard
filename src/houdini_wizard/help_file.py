@@ -18,6 +18,7 @@ _LABEL = re.compile(r"^(\s*)(\S.*):\s*$")
 _CHANNELS = re.compile(r"^\s*#channels:\s*(.+)$")
 _DIRECTIVE = re.compile(r"^\s*:")
 _META = re.compile(r"^\s*#\w+:")
+_INCLUDE = re.compile(r":include\s+(\S+):")
 
 # Hou category name -> folder inside nodes.zip.
 _FOLDERS = {
@@ -46,6 +47,7 @@ class Section:
     body: str
     role: str = "section"
     folder: str = ""
+    options: tuple[tuple[str, str], ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -54,6 +56,7 @@ class Section:
             "body": self.body,
             "role": self.role,
             "folder": self.folder,
+            "options": [{"name": name, "body": body} for name, body in self.options],
         }
 
 
@@ -61,6 +64,7 @@ class Section:
 class HelpFile:
     source: str
     sections: tuple[Section, ...]
+    includes: tuple[str, ...] = ()
 
 
 def parse_wiki(text: str) -> tuple[Section, ...]:
@@ -68,18 +72,21 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
 
     `= Title =` and `== Folder ==` are headings. After `@parameters`,
     `@inputs`, or `@outputs`, a `Label:` line at the parameter indent is a
-    heading too. A more-indented `Label:` is a menu choice and stays in the
-    parent section. `#channels:` holds the parameter's real names (`/sizex`).
+    heading too. A more-indented `Label:` is a menu choice on that parameter.
+    `#channels:` holds the parameter's real names (`/sizex`).
     """
     sections: list[_Draft] = []
     current: _Draft | None = None
     param_indent: int | None = None
     block = "title"
     folder_name = ""
+    folder_content_indent: int | None = None
 
     def start(heading: str, role: str) -> _Draft:
         nonlocal current
         folder = folder_name if role == "parameter" else ""
+        if current is not None:
+            current.option = None
         current = _Draft(heading, role, folder)
         sections.append(current)
         return current
@@ -89,12 +96,14 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
         stripped = line.strip()
         if not stripped:
             if current is not None:
-                current.lines.append("")
+                target = current.option if current.option is not None else current
+                target.lines.append("")
             continue
         if stripped == "@parameters":
             block = "parameters"
             param_indent = None
             folder_name = ""
+            folder_content_indent = None
             continue
         if stripped in {"@inputs", "@outputs"}:
             block = stripped[1:]
@@ -114,6 +123,7 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
             title = heading.group(2).strip()
             if block == "parameters":
                 folder_name = title
+                folder_content_indent = None
                 start(title, "folder")
             else:
                 start(title, "title" if block == "title" else block)
@@ -122,26 +132,39 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
         if block in {"parameters", "inputs", "outputs"} and label and not stripped.startswith("#") and not stripped.startswith(":"):
             indent = len(label.group(1))
             if param_indent is None or indent <= param_indent:
+                if folder_name:
+                    if folder_content_indent is None:
+                        folder_content_indent = indent
+                    elif indent < folder_content_indent:
+                        folder_name = ""
+                        folder_content_indent = None
                 param_indent = indent if param_indent is None else param_indent
                 role = "parameter" if block == "parameters" else block[:-1]
                 start(label.group(2).strip(), role)
                 continue
+            if current is not None and current.role == "parameter":
+                choice = _Draft(label.group(2).strip(), "option", "")
+                current.options.append(choice)
+                current.option = choice
+                continue
         if current is None:
             continue
         channels = _CHANNELS.match(line)
-        if channels and not current.lines:
+        if channels and current.option is None and not current.lines:
             names = tuple(part.strip() for part in channels.group(1).split() if part.strip())
             current.channels.extend(names)
             continue
-        if _DIRECTIVE.match(line) or (_META.match(line) and not current.lines):
+        if _DIRECTIVE.match(line) or (_META.match(line) and not current.lines and current.option is None):
             continue
-        current.lines.append(raw.rstrip())
+        target = current.option if current.option is not None else current
+        target.lines.append(raw.rstrip())
 
     return tuple(_finish(item) for item in sections if item.heading)
 
 
 def load_text(text: str, source: str) -> HelpFile:
-    return HelpFile(source=source, sections=parse_wiki(text))
+    includes = tuple(dict.fromkeys(_INCLUDE.findall(text)))
+    return HelpFile(source=source, sections=parse_wiki(text), includes=includes)
 
 
 def load_path(path: str) -> HelpFile:
@@ -204,13 +227,22 @@ class _Draft:
         self.folder = folder
         self.channels: list[str] = []
         self.lines: list[str] = []
+        self.options: list[_Draft] = []
+        self.option: _Draft | None = None
 
 
 def _finish(draft: _Draft) -> Section:
     while draft.lines and draft.lines[-1] == "":
         draft.lines.pop()
     body = textwrap.dedent("\n".join(draft.lines)).strip()
-    return Section(draft.heading, tuple(draft.channels), body, draft.role, draft.folder)
+    options = tuple((item.heading, _body(item)) for item in draft.options)
+    return Section(draft.heading, tuple(draft.channels), body, draft.role, draft.folder, options)
+
+
+def _body(draft: _Draft) -> str:
+    while draft.lines and draft.lines[-1] == "":
+        draft.lines.pop()
+    return textwrap.dedent("\n".join(draft.lines)).strip()
 
 
 def _mtime(path: str) -> int:

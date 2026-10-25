@@ -1,6 +1,6 @@
 # Houdini wizard tool
 
-Shelf tool for Houdini. You select a node, or a parameter whose channel is selected, or you are stuck on a cook error. The panel tells you which network you are in, what is wired into the node, and which parameter the help is talking about. The body is still a quote from the help that shipped with this install. You still set the values and the look.
+Shelf tool for Houdini. Select a node, or a parameter whose channel is selected. The window stays open while you work, and it follows the next node you select. It shows that node's inputs and outputs, then each parameter with the menu choices from the help that shipped with this install, including the pictures on the shelf page. You still set the values and the look.
 
 ![Flow](docs/flow.svg)
 
@@ -20,9 +20,7 @@ Add another file under `skills/` when a later call needs its own constraint, and
 
 Houdini stores node help as wiki text in `$HFS/houdini/help/nodes.zip`. One member is one node, for example `sop/box.txt`.
 
-A heading is a `= Title =` line, a `== Folder ==` line, or a parameter `Label:` under `@parameters`. The real parameter names are on the next `#channels:` line (`/sizex` belongs to Size). A more-indented `Label:` is a menu choice and stays inside that parameter's quote.
-
-The shelf opens that one member. It does not extract the zip, scan other nodes, or start the help server behind `?`. The split for that member is kept for the rest of the Houdini session.
+A heading is a `= Title =` line, a `== Folder ==` line, or a parameter `Label:` under `@parameters`. The real parameter names are on the next `#channels:` line (`/sizex` belongs to Size). A more-indented `Label:` is a menu choice on that parameter. The panel lists those choices with the sentence the help file gives them. A `:include` of a shelf page can add the short steps and the pictures. The shelf reads that one node, that included page, and those image bytes. It does not extract the archives or start the help server behind `?`. The split for that node is kept for the rest of the Houdini session.
 
 ## Model
 

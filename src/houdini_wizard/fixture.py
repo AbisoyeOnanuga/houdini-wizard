@@ -71,12 +71,37 @@ def check_file(path: Path) -> None:
         },
         "Size",
     )
-    if "geometry network" not in study["where"]:
+    if "geometry network" not in study["where"].lower():
         fail("the panel did not say which network the node is in")
-    if "nothing is wired here" not in " ".join(study["wires_in"]):
+    if "nothing is wired" in " ".join(study["wires_in"]) or "no node connected" not in " ".join(study["wires_in"]):
         fail("an empty input was not shown")
     if "Size" not in study["note"] or any(char.isdigit() for char in study["note"]):
         fail("the note invented a value or missed the parameter")
+    primitive = next(section for section in loaded.sections if section.heading == "Primitive Type")
+    if [name for name, _body in primitive.options] != ["Polygon"]:
+        fail("Polygon was not kept as a menu choice on Primitive Type")
+    if any(char.isdigit() for _name, body in primitive.options for char in body):
+        fail("a menu choice grew a number the help file does not have")
+    ranged = build_study(
+        loaded.sections,
+        {
+            "type_label": "Box",
+            "category": "Sop",
+            "ranges": {
+                "Size": {"low": 0, "high": 1, "low_strict": True, "high_strict": True},
+                "Primitive Type": {"low": 0, "high": 1, "low_strict": True, "high_strict": True},
+            },
+            "inputs": [],
+            "outputs": [],
+        },
+        "Size",
+    )
+    size_row = next(row for row in ranged["parameters"] if row["name"] == "Size")
+    menu_row = next(row for row in ranged["parameters"] if row["name"] == "Primitive Type")
+    if "Pick 0" not in size_row["range"] or "Pick 1" not in size_row["range"]:
+        fail("a 0 to 1 parameter did not explain both ends")
+    if menu_row["range"]:
+        fail("a menu parameter was given a number range")
     print("Panel: geometry network, empty input, Size left for the artist.")
     print()
 
@@ -95,6 +120,48 @@ def check_install() -> None:
         fail("installed Size section was not quoted")
     print(f"Installed help: {loaded.source}")
     print(f"Headings: {len(headings)}. Menu choice Polygon stayed inside Primitive Type.")
+    print()
+
+    unwrap = load_zip_member(str(INSTALL_ZIP), "sop/uvunwrap.txt")
+    layout = next(section for section in unwrap.sections if section.heading == "Layout")
+    choices = [name for name, _body in layout.options]
+    if choices != ["Strip", "Square"]:
+        fail(f"Layout choices were not Strip and Square: {choices}")
+    strip = next(body for name, body in layout.options if name == "Strip")
+    if "offset in U" not in strip or "largest remaining" in strip:
+        fail("Strip picked up another choice's sentence")
+    hfs = str(INSTALL_ZIP.parents[2])
+    guide = build_study(
+        unwrap.sections,
+        {
+            "type_label": "UV Unwrap",
+            "category": "Sop",
+            "path": "/obj/geo1/uvunwrap1",
+            "hfs": hfs,
+            "includes": unwrap.includes,
+            "parm_label": "Layout",
+            "values": {"Layout": "Square"},
+            "inputs": [{"label": "Input", "wired": ""}],
+            "outputs": [],
+        },
+        "Layout",
+    )
+    marked = next(row for row in guide["parameters"] if row["name"] == "Layout")
+    if marked["current"] != "Square" or not any(option["current"] for option in marked["options"]):
+        fail("the current menu choice was not marked")
+    if not guide["steps"] or not any(figure["images"] for figure in guide["figures"]):
+        fail("the shelf picture and steps were not picked up")
+    if "File Cache" not in guide["cache"] or any(char.isdigit() for char in guide["cache"]):
+        fail("the cache note invented a number or missed the technique")
+    print("UV Unwrap: Strip and Square, current choice marked, picture and steps included.")
+    print()
+
+    project = load_zip_member(str(INSTALL_ZIP), "sop/uvproject.txt")
+    translate = next(section for section in project.sections if section.heading == "Translate")
+    u_range = next(section for section in project.sections if section.heading == "U Range")
+    if translate.folder != "Transformation" or u_range.folder:
+        fail(f"parameter tabs were mixed up: Translate={translate.folder!r} U Range={u_range.folder!r}")
+    print("UV Project: Transformation stays its own tab, and U Range is not pulled into it.")
     print()
 
 
