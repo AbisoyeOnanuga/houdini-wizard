@@ -86,14 +86,38 @@ def pick_heading(headings: list[str], error_text: str) -> str:
     return heading
 
 
+def explain_context(error_text: str, heading: str, wires: list[str]) -> str:
+    """A short note for a cook error that named no heading. The skill forbids invented values."""
+    user = f"Cook error:\n{error_text.strip()}\n\nHeading:\n{heading}\n\nWires:\n" + "\n".join(wires)
+    payload = {
+        "model": os.environ.get("HOUDINI_WIZARD_MODEL", DEFAULT_MODEL),
+        "stream": False,
+        "options": {"temperature": 0},
+        "messages": [
+            {"role": "system", "content": _skill("houdini-context")},
+            {"role": "user", "content": user},
+        ],
+    }
+    url = os.environ.get("HOUDINI_WIZARD_OLLAMA", "http://127.0.0.1:11434").rstrip("/") + "/api/chat"
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=90) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    text = str(body.get("message", {}).get("content", "")).strip()
+    parts = [part.strip() for part in text.replace("\n", " ").split(". ") if part.strip()]
+    return ". ".join(parts[:3]).rstrip(".") + ("." if parts else "")
+
+
 def skill_text() -> str:
+    return _skill("houdini-section")
+
+
+def _skill(name: str) -> str:
     override = os.environ.get("HOUDINI_WIZARD_SKILL")
-    if override:
+    if override and name == "houdini-section":
         return Path(override).read_text(encoding="utf-8")
     root = Path(__file__).resolve().parents[2]
-    path = root / "skills" / "houdini-section" / "SKILL.md"
+    path = root / "skills" / name / "SKILL.md"
     if not path.is_file():
-        raise FileNotFoundError(
-            "skills/houdini-section/SKILL.md is missing. That file is the instruction Gemma receives."
-        )
+        raise FileNotFoundError(f"skills/{name}/SKILL.md is missing. That file is an instruction Gemma receives.")
     return path.read_text(encoding="utf-8")

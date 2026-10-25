@@ -44,12 +44,16 @@ class Section:
     heading: str
     channels: tuple[str, ...]
     body: str
+    role: str = "section"
+    folder: str = ""
 
     def as_dict(self) -> dict:
         return {
             "heading": self.heading,
             "channels": list(self.channels),
             "body": self.body,
+            "role": self.role,
+            "folder": self.folder,
         }
 
 
@@ -70,11 +74,13 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
     sections: list[_Draft] = []
     current: _Draft | None = None
     param_indent: int | None = None
-    in_parms = False
+    block = "title"
+    folder_name = ""
 
-    def start(heading: str) -> _Draft:
+    def start(heading: str, role: str) -> _Draft:
         nonlocal current
-        current = _Draft(heading)
+        folder = folder_name if role == "parameter" else ""
+        current = _Draft(heading, role, folder)
         sections.append(current)
         return current
 
@@ -85,30 +91,40 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
             if current is not None:
                 current.lines.append("")
             continue
-        if stripped in {"@parameters", "@inputs", "@outputs"}:
-            in_parms = True
+        if stripped == "@parameters":
+            block = "parameters"
             param_indent = None
-            if stripped != "@parameters":
-                start(stripped[1:].capitalize())
+            folder_name = ""
+            continue
+        if stripped in {"@inputs", "@outputs"}:
+            block = stripped[1:]
+            param_indent = None
+            start(stripped[1:].capitalize(), block)
             continue
         if stripped.startswith("@related"):
-            in_parms = False
+            block = "related"
             param_indent = None
-            start("Related")
+            start("Related", "related")
             continue
         heading = _HEADING.match(stripped)
         if heading and line.lstrip() == stripped:
             # A folder such as `== Code ==` stays inside @parameters.
             # The next Label: at the left edge is still a parameter.
             param_indent = None
-            start(heading.group(2).strip())
+            title = heading.group(2).strip()
+            if block == "parameters":
+                folder_name = title
+                start(title, "folder")
+            else:
+                start(title, "title" if block == "title" else block)
             continue
         label = _LABEL.match(line)
-        if in_parms and label and not stripped.startswith("#") and not stripped.startswith(":"):
+        if block in {"parameters", "inputs", "outputs"} and label and not stripped.startswith("#") and not stripped.startswith(":"):
             indent = len(label.group(1))
             if param_indent is None or indent <= param_indent:
                 param_indent = indent if param_indent is None else param_indent
-                start(label.group(2).strip())
+                role = "parameter" if block == "parameters" else block[:-1]
+                start(label.group(2).strip(), role)
                 continue
         if current is None:
             continue
@@ -182,8 +198,10 @@ def installed_help(category: str, internal: str, hfs: str | None = None) -> Help
 
 
 class _Draft:
-    def __init__(self, heading: str) -> None:
+    def __init__(self, heading: str, role: str, folder: str) -> None:
         self.heading = heading
+        self.role = role
+        self.folder = folder
         self.channels: list[str] = []
         self.lines: list[str] = []
 
@@ -192,7 +210,7 @@ def _finish(draft: _Draft) -> Section:
     while draft.lines and draft.lines[-1] == "":
         draft.lines.pop()
     body = textwrap.dedent("\n".join(draft.lines)).strip()
-    return Section(draft.heading, tuple(draft.channels), body)
+    return Section(draft.heading, tuple(draft.channels), body, draft.role, draft.folder)
 
 
 def _mtime(path: str) -> int:

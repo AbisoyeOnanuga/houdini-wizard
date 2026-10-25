@@ -6,7 +6,8 @@ import asyncio
 import os
 
 from houdini_wizard.help_file import installed_help
-from houdini_wizard.pick import decide, finish, pick_heading
+from houdini_wizard.panel import show_panel
+from houdini_wizard.pick import decide, explain_context, finish, pick_heading
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
 
@@ -32,7 +33,17 @@ def show_card() -> None:
     request = decide(help_file.sections, parm_name, parm_label, error_text)
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     card, note = _store(card_id, request)
-    _present(hou, card, note, help_file.sections)
+    scene = _scene(node, error_text)
+    extra = ""
+    if request.get("needs_model"):
+        try:
+            from houdini_wizard.context import build_study
+
+            study = build_study(help_file.sections, scene, card.get("title") or "")
+            extra = explain_context(error_text, study["focus_heading"], study["wires_in"])
+        except Exception:
+            extra = note
+    show_panel(help_file.sections, scene, card.get("title") or "", extra)
 
 
 def _selection(hou):
@@ -53,6 +64,52 @@ def _selection(hou):
     else:
         error_text = errors or ""
     return node, parm_name, parm_label, error_text
+
+
+def _scene(node, error_text: str) -> dict:
+    return {
+        "type_label": _type_label(node),
+        "category": node.type().category().name(),
+        "path": node.path(),
+        "error": error_text,
+        "inputs": _ends(node, incoming=True),
+        "outputs": _ends(node, incoming=False),
+    }
+
+
+def _type_label(node) -> str:
+    try:
+        return node.type().description() or node.type().name()
+    except Exception:
+        return node.type().name()
+
+
+def _ends(node, incoming: bool) -> list[dict]:
+    try:
+        labels = list(node.inputLabels() if incoming else node.outputLabels() or [])
+        wires = list(node.inputs() if incoming else node.outputs() or [])
+    except Exception:
+        return []
+    rows: list[dict] = []
+    if incoming:
+        for index, label in enumerate(labels):
+            other = wires[index] if index < len(wires) else None
+            rows.append({"label": str(label), "wired": _other_name(other)})
+        return rows
+    names = [_other_name(other) for other in wires]
+    names = [name for name in names if name]
+    if labels or names:
+        rows.append({"label": str(labels[0]) if labels else "Output", "wired": ", ".join(names)})
+    return rows
+
+
+def _other_name(other) -> str:
+    if other is None:
+        return ""
+    try:
+        return other.type().description() or other.name()
+    except Exception:
+        return ""
 
 
 def _selected_parm(hou, node):
