@@ -210,6 +210,15 @@ def check_install() -> None:
     ):
         fail("Principled Shader did not keep Reflection inside Surface / Specular")
     print("Vellum Solver and Principled Shader use the same folder nesting.")
+    from houdini_wizard.help_file import library_catalog
+
+    catalog = library_catalog(hfs)
+    geometry = next(group for group in catalog if group["label"] == "Geometry")
+    if not any(node["internal"] == "box" and node["label"] == "Box" for node in geometry["nodes"]):
+        fail("the help library did not list Box under Geometry")
+    if not any(group["label"] == "Dynamics" for group in catalog):
+        fail("the help library left out Dynamics")
+    print("Help library: Geometry includes Box, and Dynamics is its own section.")
     print()
 
     from houdini_wizard.help_file import installed_help

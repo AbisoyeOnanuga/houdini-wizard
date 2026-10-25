@@ -21,6 +21,22 @@ _META = re.compile(r"^\s*#\w+:")
 _INCLUDE = re.compile(r":include\s+(\S+):")
 _ID = re.compile(r"^\s*#id:\s*(\S*)")
 _CONTENTFROM = re.compile(r"^\s*#contentfrom:\s*(\S+)")
+_PAGE_TITLE = re.compile(r"(?m)^=(?!=)\s*(.+?)\s*=(?!=)\s*$")
+_LIBRARY = (
+    ("sop", "Sop", "Geometry"),
+    ("dop", "Dop", "Dynamics"),
+    ("lop", "Lop", "Solaris"),
+    ("cop", "Cop", "Copernicus"),
+    ("cop2", "Cop2", "Compositing"),
+    ("vop", "Vop", "VOP"),
+    ("obj", "Object", "Objects"),
+    ("shop", "Shop", "Materials"),
+    ("chop", "Chop", "Channels"),
+    ("out", "Driver", "Render"),
+    ("top", "Top", "Tasks"),
+    ("apex", "Apex", "APEX"),
+)
+_CATALOG_CACHE: tuple | None = None
 
 # Hou category name -> folder inside nodes.zip.
 _FOLDERS = {
@@ -249,6 +265,51 @@ def load_zip_member(zip_path: str, member: str) -> HelpFile:
     loaded = load_text(text, f"{zip_path}:{chosen}")
     _CACHE[key] = loaded
     return loaded
+
+
+def library_catalog(hfs: str) -> list[dict]:
+    """Every help page in this install, grouped the way the network types are grouped.
+
+    The index is built once per help archive. Opening the shelf without a
+    selection uses it, and choosing a page reads that one file.
+    """
+    global _CATALOG_CACHE
+    zip_path = os.path.join(hfs, "houdini", "help", "nodes.zip")
+    if not os.path.isfile(zip_path):
+        return []
+    mtime = _mtime(zip_path)
+    if _CATALOG_CACHE is not None and _CATALOG_CACHE[0] == zip_path and _CATALOG_CACHE[1] == mtime:
+        return _CATALOG_CACHE[2]
+    archive, names = _zip(zip_path)
+    grouped: dict[str, list[dict]] = {folder: [] for folder, _category, _label in _LIBRARY}
+    for name in names:
+        if name.count("/") != 1 or not name.endswith(".txt"):
+            continue
+        folder, file_name = name.split("/")
+        if folder not in grouped:
+            continue
+        internal = file_name[:-4]
+        if not internal or internal.startswith("_"):
+            continue
+        try:
+            head = archive.read(name)[:1200].decode("utf-8", errors="replace")
+        except KeyError:
+            continue
+        found = _PAGE_TITLE.search(head)
+        label = found.group(1).strip() if found else internal.replace("_", " ").replace("--", " ")
+        label = re.sub(r"\[([^\]|]+)\|[^\]]+\]", r"\1", label)
+        grouped[folder].append(
+            {"folder": folder, "category": "", "internal": internal, "label": label or internal}
+        )
+    catalog = []
+    for folder, category, label in _LIBRARY:
+        nodes = sorted(grouped[folder], key=lambda item: item["label"].casefold())
+        for node in nodes:
+            node["category"] = category
+        if nodes:
+            catalog.append({"folder": folder, "category": category, "label": label, "nodes": nodes})
+    _CATALOG_CACHE = (zip_path, mtime, catalog)
+    return catalog
 
 
 def member_for(category: str, internal: str) -> str:

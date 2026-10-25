@@ -7,7 +7,7 @@ Pictures, menu choices, and number ranges come from this install.
 from __future__ import annotations
 
 from houdini_wizard.context import build_study, image_bytes
-from houdini_wizard.help_file import Section
+from houdini_wizard.help_file import Section, installed_help, library_catalog
 
 _WINDOW = None
 _CALLBACK = None
@@ -39,6 +39,19 @@ def _qt_panel(sections, scene: dict, focus_heading: str, extra_note: str, refres
 
     window = _window(QtWidgets, QtCore, QtGui, hou)
     window.present(study, raise_window=True)
+    _follow(hou, window, refresh)
+
+
+def show_library(hfs: str, refresh=None) -> None:
+    """Open the help library. A later node selection replaces this view."""
+    try:
+        from PySide6 import QtCore, QtGui, QtWidgets
+    except ImportError:
+        from PySide2 import QtCore, QtGui, QtWidgets
+    import hou
+
+    window = _window(QtWidgets, QtCore, QtGui, hou)
+    window.present(_library_study(hfs), raise_window=True)
     _follow(hou, window, refresh)
 
 
@@ -74,6 +87,8 @@ def _window(widgets, core, gui, hou):
     outer.setSpacing(8)
 
     bar = widgets.QHBoxLayout()
+    dialog.library_button = widgets.QPushButton("Library")
+    dialog.library_button.setToolTip("Browse the help that shipped with this Houdini")
     dialog.nav_button = widgets.QPushButton("Sections")
     dialog.nav_button.setCheckable(True)
     dialog.nav_button.setChecked(True)
@@ -95,7 +110,9 @@ def _window(widgets, core, gui, hou):
     dialog.theme_button.setToolTip("Switch the panel colors")
     dialog.close_button = widgets.QPushButton("Exit")
     dialog.close_button.setToolTip("Close the panel")
+    bar.addWidget(dialog.library_button)
     bar.addWidget(dialog.nav_button)
+    dialog.library_button.clicked.connect(lambda: _open_library(dialog))
     bar.addWidget(dialog.zoom_out)
     bar.addWidget(dialog.zoom_label)
     bar.addWidget(dialog.zoom_slider)
@@ -150,6 +167,8 @@ def _window(widgets, core, gui, hou):
         previous = dialog._study
         reveal = raise_window or _selected_name(previous) != _selected_name(study)
         dialog._study = study
+        if study.get("hfs"):
+            dialog._hfs = study["hfs"]
         keep = dialog._user_pos
         dialog._placing = True
         try:
@@ -183,6 +202,9 @@ def _window(widgets, core, gui, hou):
 
 
 def _fill(dialog, study: dict, reveal: bool = False) -> None:
+    if study.get("kind") == "library":
+        _fill_library(dialog, study)
+        return
     widgets = dialog._widgets
     layout = dialog.page_layout
     _empty_layout(layout)
@@ -238,13 +260,14 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
         note.setWordWrap(True)
         layout.addWidget(note)
 
-    wire_host = widgets.QWidget()
-    columns = widgets.QHBoxLayout(wire_host)
-    columns.setContentsMargins(0, 0, 0, 0)
-    columns.addWidget(_ends_box(widgets, "Node input", study.get("inputs") or [], "No input on this node."))
-    columns.addWidget(_ends_box(widgets, "Node output", study.get("outputs") or [], "No output on this node."))
-    layout.addWidget(wire_host)
-    _mark(dialog, "section:wires", wire_host, "Node input")
+    if not study.get("library_page"):
+        wire_host = widgets.QWidget()
+        columns = widgets.QHBoxLayout(wire_host)
+        columns.setContentsMargins(0, 0, 0, 0)
+        columns.addWidget(_ends_box(widgets, "Node input", study.get("inputs") or [], "No input on this node."))
+        columns.addWidget(_ends_box(widgets, "Node output", study.get("outputs") or [], "No output on this node."))
+        layout.addWidget(wire_host)
+        _mark(dialog, "section:wires", wire_host, "Node input")
 
     if study.get("steps"):
         heading = _section_label(widgets, "How to use it")
@@ -393,13 +416,179 @@ def _outline_item(dialog, key: str, label: str, depth: int) -> None:
     dialog.outline.addItem(item)
 
 
+def _library_study(hfs: str) -> dict:
+    return {
+        "kind": "library",
+        "type_label": "Help library",
+        "where": "Help that shipped with this Houdini.",
+        "summary": "Open any page here. Select a node in the network and this window follows it.",
+        "hfs": hfs,
+        "catalog": library_catalog(hfs),
+    }
+
+
+def _open_library(dialog) -> None:
+    hou = getattr(dialog, "_hou", None)
+    if hou is not None:
+        try:
+            from houdini_wizard.shelf import hold_for_browse
+
+            hold_for_browse(hou)
+        except Exception:
+            pass
+    hfs = getattr(dialog, "_hfs", "") or ""
+    if not hfs and hou is not None:
+        try:
+            hfs = hou.getenv("HFS") or ""
+        except Exception:
+            hfs = ""
+    dialog.present(_library_study(hfs), raise_window=False)
+
+
+def _fill_library(dialog, study: dict) -> None:
+    widgets = dialog._widgets
+    layout = dialog.page_layout
+    _empty_layout(layout)
+    for child in list(dialog.page.children()):
+        if child is layout or not hasattr(child, "hide"):
+            continue
+        child.hide()
+        child.setParent(None)
+        child.deleteLater()
+    dialog._anchors = {}
+    dialog.tabs = None
+    dialog._catalog = study.get("catalog") or []
+    dialog._library_folder = dialog._catalog[0]["folder"] if dialog._catalog else ""
+    dialog._library_query = ""
+    dialog.outline.blockSignals(True)
+    dialog.outline.clear()
+    where = widgets.QLabel(study.get("where") or "")
+    where.setObjectName("where")
+    where.setWordWrap(True)
+    title = widgets.QLabel(study.get("type_label") or "")
+    title.setObjectName("title")
+    summary = widgets.QLabel(study.get("summary") or "")
+    summary.setObjectName("summary")
+    summary.setWordWrap(True)
+    layout.addWidget(where)
+    layout.addWidget(title)
+    layout.addWidget(summary)
+    dialog.library_search = widgets.QLineEdit()
+    dialog.library_search.setObjectName("librarySearch")
+    dialog.library_search.setPlaceholderText("Search the help library")
+    dialog.library_search.textChanged.connect(lambda text, dialog=dialog: _search_library(dialog, text))
+    layout.addWidget(dialog.library_search)
+    dialog.library_count = widgets.QLabel("")
+    dialog.library_count.setObjectName("intro")
+    dialog.library_count.setWordWrap(True)
+    layout.addWidget(dialog.library_count)
+    dialog.library_list = widgets.QListWidget()
+    dialog.library_list.setObjectName("libraryList")
+    dialog.library_list.setUniformItemSizes(True)
+    dialog.library_list.setFrameShape(widgets.QFrame.NoFrame)
+    dialog.library_list.setMinimumHeight(520)
+    dialog.library_list.itemClicked.connect(lambda item, dialog=dialog: _open_catalog_node(dialog, item))
+    layout.addWidget(dialog.library_list)
+    for group in dialog._catalog:
+        _outline_item(dialog, f"cat:{group['folder']}", group["label"], 0)
+    if dialog.outline.count():
+        dialog.outline.setCurrentRow(0)
+    dialog.outline.blockSignals(False)
+    _refill_library_list(dialog)
+
+
+def _search_library(dialog, text: str) -> None:
+    dialog._library_query = text
+    _refill_library_list(dialog)
+
+
+def _show_library_folder(dialog, folder: str) -> None:
+    dialog._library_folder = folder
+    if hasattr(dialog, "library_search"):
+        dialog.library_search.blockSignals(True)
+        dialog.library_search.clear()
+        dialog.library_search.blockSignals(False)
+    dialog._library_query = ""
+    _refill_library_list(dialog)
+
+
+def _library_matches(dialog) -> list[dict]:
+    catalog = getattr(dialog, "_catalog", None) or []
+    query = (getattr(dialog, "_library_query", "") or "").strip().casefold()
+    if len(query) >= 2:
+        found = []
+        for group in catalog:
+            for node in group["nodes"]:
+                if query in node["label"].casefold() or query in node["internal"].casefold():
+                    found.append(node)
+                    if len(found) >= 250:
+                        return found
+        return found
+    folder = getattr(dialog, "_library_folder", "")
+    for group in catalog:
+        if group["folder"] == folder:
+            return group["nodes"]
+    return []
+
+
+def _refill_library_list(dialog) -> None:
+    widgets = dialog._widgets
+    core = dialog._core
+    listing = dialog.library_list
+    listing.clear()
+    rows = _library_matches(dialog)
+    query = (getattr(dialog, "_library_query", "") or "").strip()
+    if len(query) >= 2:
+        dialog.library_count.setText(f"{len(rows)} matches")
+    else:
+        label = next((group["label"] for group in dialog._catalog if group["folder"] == dialog._library_folder), "")
+        dialog.library_count.setText(f"{label}  ·  {len(rows)} pages" if label else "")
+    for node in rows:
+        item = widgets.QListWidgetItem(node["label"])
+        item.setData(core.Qt.UserRole, node)
+        listing.addItem(item)
+
+
+def _open_catalog_node(dialog, item) -> None:
+    node = item.data(dialog._core.Qt.UserRole)
+    if not isinstance(node, dict):
+        return
+    hfs = getattr(dialog, "_hfs", "") or ""
+    try:
+        help_file = installed_help(node["category"], node["internal"], hfs)
+    except (FileNotFoundError, OSError):
+        return
+    scene = {
+        "type_label": node["label"],
+        "category": node["category"],
+        "path": "",
+        "hfs": hfs,
+        "includes": list(help_file.includes),
+        "error": "",
+        "parm_label": "",
+        "values": {},
+        "ranges": {},
+        "tooltips": {},
+        "inputs": [],
+        "outputs": [],
+    }
+    study = build_study(help_file.sections, scene, "")
+    study["library_page"] = True
+    study["note"] = "No node is selected. Select one in the network and this window follows it."
+    dialog.present(study, raise_window=False)
+
+
 def _on_outline(dialog, row: int) -> None:
     if row < 0:
         return
     item = dialog.outline.item(row)
     if item is None:
         return
-    _activate(dialog, item.data(dialog._core.Qt.UserRole))
+    key = item.data(dialog._core.Qt.UserRole)
+    if isinstance(key, str) and key.startswith("cat:"):
+        _show_library_folder(dialog, key.split(":", 1)[1])
+        return
+    _activate(dialog, key)
 
 
 def _activate(dialog, key: str) -> None:
@@ -813,6 +1002,13 @@ QLabel#error, QLabel#callout, QLabel#cache {{
     background: {call}; color: {fg}; padding: 8px 10px; border-radius: 6px;
 }}
 QListWidget#outline {{ background: {nav}; color: {fg}; border: none; font-size: {body}px; }}
+QListWidget#libraryList {{ background: {bg}; color: {fg}; border: none; font-size: {body}px; }}
+QListWidget#libraryList::item {{ padding: 4px 2px; }}
+QListWidget#libraryList::item:selected {{ background: {select}; color: {fg}; }}
+QLineEdit#librarySearch {{
+    background: {card}; color: {fg}; border: 1px solid {line}; border-radius: 4px;
+    padding: 6px 8px; font-size: {body}px;
+}}
 QListWidget#outline::item {{ padding: 3px 8px; }}
 QListWidget#outline::item:selected {{ background: {select}; color: {fg}; }}
 QFrame#parm, QFrame#selected {{ background: {card}; border: 1px solid {line}; border-radius: 4px; }}

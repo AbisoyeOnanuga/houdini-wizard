@@ -18,9 +18,17 @@ _seen = {"signature": None, "guide_token": 0}
 def show_card() -> None:
     import hou
 
-    selected = _selection(hou)
+    selected = _selection(hou, announce=False)
     if selected is None:
+        _seen["browsing"] = True
+        _seen["browse_hold"] = None
+        _seen["signature"] = ("library",)
+        hfs = hou.getenv("HFS") or os.environ.get("HFS", "")
+        from houdini_wizard.panel import show_library
+
+        show_library(hfs, refresh=lambda: _poll(hou))
         return
+    _seen["browsing"] = False
     node, parm_name, parm_label, error_text = selected
     try:
         category = node.type().category().name()
@@ -75,12 +83,28 @@ def _selection(hou, announce: bool = True):
     return node, parm_name, parm_label, error_text
 
 
+def hold_for_browse(hou) -> None:
+    """Keep the library on screen until the network selection changes."""
+    selected = _selection(hou, announce=False)
+    if selected is None:
+        _seen["browse_hold"] = None
+    else:
+        node, parm_name, parm_label, error_text = selected
+        _seen["browse_hold"] = _signature(node, parm_name, parm_label, error_text)
+    _seen["browsing"] = True
+    _seen["signature"] = ("library",)
+
+
 def _poll(hou):
     selected = _selection(hou, announce=False)
     if selected is None:
         return None
     node, parm_name, parm_label, error_text = selected
     signature = _signature(node, parm_name, parm_label, error_text)
+    if _seen.get("browsing"):
+        if signature == _seen.get("browse_hold"):
+            return None
+        _seen["browsing"] = False
     if signature == _seen["signature"]:
         return None
     try:
