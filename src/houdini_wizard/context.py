@@ -10,7 +10,7 @@ import os
 import re
 import zipfile
 
-from houdini_wizard.help_file import Section
+from houdini_wizard.help_file import Section, load_zip_member
 
 _WHERE = {
     "Sop": "Geometry network. This node changes the geometry passing through it.",
@@ -46,7 +46,7 @@ def build_study(sections: tuple[Section, ...] | list[Section], scene: dict, focu
         scene.get("tooltips") or {},
         scene.get("guides") or {},
     )
-    groups = _next_groups(sections, title_body, usage["steps"])
+    related_nodes = _related_nodes(sections, scene.get("hfs") or "")
     heading = focus.heading if focus else ""
     folder = focus.folder if focus else ""
     return {
@@ -67,10 +67,10 @@ def build_study(sections: tuple[Section, ...] | list[Section], scene: dict, focu
         "wires_out": wires_out,
         "steps": usage["steps"],
         "figures": usage["figures"],
-        "next_groups": groups,
-        "related": [name for group in groups for name in group["names"]],
+        "related_nodes": related_nodes,
+        "related": [item["label"] for item in related_nodes],
         "headings": [item["name"] for item in parameters],
-        "cache": _cache(sections, scene.get("type_label") or ""),
+        "cache": _cache(sections, scene.get("type_label") or "", scene.get("category") or ""),
         "note": _note(
             heading if focus and focus.role == "parameter" else "",
             folder if focus and focus.role == "parameter" else "",
@@ -321,41 +321,55 @@ def _wires(live: list[dict], sections, role: str) -> list[str]:
     return lines
 
 
-def _next_groups(sections, title_body: str, steps: list[str]) -> list[dict]:
-    names = _related(sections)
-    blobs = [title_body, *steps]
-    groups: list[dict] = []
-    assigned: set[str] = set()
-    for blob in blobs:
-        for sentence in re.split(r"(?<=[.!?])\s+", plain(blob)):
-            mentioned = [name for name in names if name in sentence and name not in assigned]
-            if not mentioned:
-                continue
-            assigned.update(mentioned)
-            groups.append({"names": mentioned, "why": sentence})
-    leftover = [name for name in names if name not in assigned]
-    if leftover:
-        groups.append({"names": leftover, "why": "The installed help lists these beside this node."})
-    return groups
+_NODE_LINK = re.compile(
+    r"\[(?:([^\]|]+)\|)?Node:([A-Za-z0-9_]+)/([A-Za-z0-9_]+)\]",
+    re.I,
+)
+_HEAVY = re.compile(
+    r"\b(simulat\w*|solvers?|volumes?|pyro|flip|oceans?|vellum|cloth|muscles?|crowds?|vdbs?|heightfields?|renders?|fem|grains?)\b",
+    re.I,
+)
 
 
-def _related(sections) -> list[str]:
-    names: list[str] = []
+def _related_nodes(sections, hfs: str) -> list[dict]:
+    """Nodes the help browser lists next, each with that node's own one-line summary."""
+    found: list[dict] = []
+    seen: set[str] = set()
     for section in sections:
-        if section.role != "related" and "Node:" not in section.body:
+        if section.role != "related":
             continue
-        for match in re.findall(r"\[([^\]|]+)\|Node:[^\]]+\]", section.body):
-            names.append(match.strip())
-        for match in re.findall(r"\[Node:[a-z0-9_]+/([a-z0-9_]+)\]", section.body, re.I):
-            names.append(match)
-    seen: list[str] = []
-    for name in names:
-        if name and name not in seen:
-            seen.append(name)
-    return seen
+        for match in _NODE_LINK.finditer(section.body):
+            label, folder, internal = match.group(1), match.group(2).lower(), match.group(3).lower()
+            help_path = f"/nodes/{folder}/{internal}"
+            if help_path in seen:
+                continue
+            seen.add(help_path)
+            title, note = _node_blurb(hfs, folder, internal)
+            found.append(
+                {
+                    "label": (label or title or internal).strip(),
+                    "help": help_path,
+                    "note": note,
+                }
+            )
+    return found
 
 
-def _cache(sections, type_label: str) -> str:
+def _node_blurb(hfs: str, folder: str, internal: str) -> tuple[str, str]:
+    if not hfs:
+        return "", ""
+    zip_path = os.path.join(hfs, "houdini", "help", "nodes.zip")
+    try:
+        loaded = load_zip_member(zip_path, f"{folder}/{internal}.txt")
+    except (OSError, FileNotFoundError, zipfile.BadZipFile, KeyError):
+        return "", ""
+    title = _find_role(loaded.sections, "title")
+    if title is None:
+        return "", ""
+    return title.heading, _lead(title.body)
+
+
+def _cache(sections, type_label: str, category: str = "") -> str:
     own = [section.heading for section in sections if section.role == "parameter" and re.search(r"cache|freeze", section.heading, re.I)]
     if own:
         return (
@@ -367,11 +381,38 @@ def _cache(sections, type_label: str) -> str:
             "This node holds a cooked result. Write it when the upstream nodes look right. "
             "Nodes after it can read the cache instead of cooking the whole chain again."
         )
+    title = _find_role(sections, "title")
+    described = plain(" ".join([type_label, title.body if title else ""]))
+    if category != "Dop" and not _HEAVY.search(described):
+        return ""
+    if category == "Dop":
+        return (
+            "This is a simulation step, so it is often the slow part of the network. "
+            "When the setup looks right, cache the result and work downstream from that cache. "
+            "You still set the parameters here. When you change them, write the cache again."
+        )
     return (
-        "If cooking this node makes the scene hard to work in, add a File Cache after it and write the geometry. "
+        "This cook is the kind that holds up a network. Add a File Cache after it and write the result. "
         "Nodes downstream read that file, so this node does not have to cook on every change. "
         "You still set the parameters here. When you change them, write the cache again."
     )
+
+
+def _lead(body: str) -> str:
+    quoted = _summary(body)
+    if quoted:
+        return quoted
+    lines: list[str] = []
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(":"):
+            if lines:
+                break
+            continue
+        lines.append(stripped)
+        if stripped.endswith((".", "!", "?")):
+            break
+    return plain(" ".join(lines))
 
 
 def _summary(body: str) -> str:

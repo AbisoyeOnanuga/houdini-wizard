@@ -6,6 +6,8 @@ Pictures, menu choices, and number ranges come from this install.
 
 from __future__ import annotations
 
+import html
+
 from houdini_wizard.context import build_study, image_bytes
 from houdini_wizard.help_file import Section
 
@@ -55,6 +57,9 @@ def _window(widgets, core, gui, hou):
     dialog.resize(960, 720)
     dialog.setSizeGripEnabled(True)
     dialog._fitted = False
+    dialog._hou = hou
+    dialog._user_pos = None
+    dialog._placing = False
     dialog._gui = gui
     dialog._widgets = widgets
     dialog._core = core
@@ -135,26 +140,42 @@ def _window(widgets, core, gui, hou):
     dialog._nav_width = 210
     outer.addWidget(dialog.splitter, 1)
 
+    def moveEvent(event) -> None:
+        widgets.QDialog.moveEvent(dialog, event)
+        if dialog._placing or not dialog.isVisible():
+            return
+        dialog._user_pos = dialog.pos()
+        dialog.setAttribute(core.Qt.WA_Moved, True)
+
     def present(study: dict, raise_window: bool) -> None:
         previous = dialog._study
         reveal = raise_window or _selected_name(previous) != _selected_name(study)
         dialog._study = study
-        _fill(dialog, study, reveal=reveal)
-        dialog.setWindowTitle(study.get("type_label") or "Houdini wizard")
-        if not dialog._fitted:
-            _fit(dialog)
-            dialog._fitted = True
-        if dialog.isMinimized():
-            return
-        if raise_window or dialog.isVisible():
-            dialog.show()
-        if raise_window:
-            dialog.raise_()
-            dialog.activateWindow()
+        keep = dialog._user_pos
+        dialog._placing = True
+        try:
+            _fill(dialog, study, reveal=reveal)
+            dialog.setWindowTitle(study.get("type_label") or "Houdini wizard")
+            if not dialog._fitted:
+                _fit(dialog)
+                dialog._fitted = True
+            if dialog.isMinimized():
+                return
+            if raise_window or dialog.isVisible():
+                dialog.show()
+            if keep is not None:
+                dialog.move(keep)
+                dialog.setAttribute(core.Qt.WA_Moved, True)
+            if raise_window:
+                dialog.raise_()
+                dialog.activateWindow()
+        finally:
+            dialog._placing = False
 
     def closeEvent(event) -> None:
         widgets.QDialog.closeEvent(dialog, event)
 
+    dialog.moveEvent = moveEvent
     dialog.present = present
     dialog.closeEvent = closeEvent
     _restyle(dialog)
@@ -302,26 +323,24 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
             empty.setWordWrap(True)
             layout.addWidget(empty)
 
-    if study.get("next_groups"):
-        heading = _section_label(widgets, "Continue with")
+    if study.get("related_nodes"):
+        heading = _section_label(widgets, "Use with")
         layout.addWidget(heading)
-        _mark(dialog, "section:next", heading, "Continue with")
+        _mark(dialog, "section:next", heading, "Use with")
         hint = widgets.QLabel(
-            "These are nodes the help places next to this one. "
-            "The note under each name says what that node is for, so you can choose which part of the setup to build next."
+            "Houdini’s help browser recommends reading these next. "
+            "They can be used with or after this node, so you can decide what you may need next for your project."
         )
         hint.setObjectName("intro")
         hint.setWordWrap(True)
         layout.addWidget(hint)
-        for group in study["next_groups"]:
-            names = widgets.QLabel("   ".join(group["names"]))
-            names.setObjectName("nextNames")
-            names.setWordWrap(True)
-            why = widgets.QLabel(group["why"])
-            why.setObjectName("nextWhy")
-            why.setWordWrap(True)
-            layout.addWidget(names)
-            layout.addWidget(why)
+        for node in study["related_nodes"]:
+            layout.addWidget(_help_link(dialog, node["label"], node["help"]))
+            if node.get("note"):
+                why = widgets.QLabel(node["note"])
+                why.setObjectName("nextWhy")
+                why.setWordWrap(True)
+                layout.addWidget(why)
 
     if study.get("cache"):
         heading = _section_label(widgets, "Keep working while it cooks")
@@ -514,6 +533,35 @@ def _callout(widgets, text: str, name: str):
     return label
 
 
+def _help_link(dialog, label: str, path: str):
+    widgets = dialog._widgets
+    core = dialog._core
+    link_color = "#8eb7ff" if dialog._theme == "dark" else "#1565c0"
+    safe = html.escape(label)
+    link = widgets.QLabel(
+        f'<a href="{html.escape(path)}" style="color:{link_color}; text-decoration:underline;">{safe}</a>'
+    )
+    link.setObjectName("helpLink")
+    link.setTextFormat(core.Qt.RichText)
+    link.setTextInteractionFlags(core.Qt.TextBrowserInteraction)
+    link.setOpenExternalLinks(False)
+    link.setCursor(dialog._gui.QCursor(core.Qt.PointingHandCursor))
+    link.linkActivated.connect(lambda url, dialog=dialog: _open_help(dialog, url))
+    return link
+
+
+def _open_help(dialog, path: str) -> None:
+    hou = getattr(dialog, "_hou", None)
+    ui = getattr(hou, "ui", None) if hou is not None else None
+    display = getattr(ui, "displayHelp", None) if ui is not None else None
+    if not path or not callable(display):
+        return
+    try:
+        display(path)
+    except Exception:
+        return
+
+
 def _section_label(widgets, text: str):
     label = widgets.QLabel(text)
     label.setObjectName("section")
@@ -693,6 +741,7 @@ def _style(theme: str, zoom: float) -> str:
             "#e7d7c0",
             "#f3e4d4",
         )
+        link = "#1565c0"
     else:
         bg, fg, muted, accent, card, line, nav, select, call = (
             "#241f1b",
@@ -705,6 +754,7 @@ def _style(theme: str, zoom: float) -> str:
             "#3c342c",
             "#3a2a22",
         )
+        link = "#8eb7ff"
     body = _px(zoom, 14)
     return f"""
 QDialog {{ background: {bg}; color: {fg}; }}
@@ -715,6 +765,8 @@ QLabel#where {{ color: {accent}; font-size: {_px(zoom, 14)}px; }}
 QLabel#title {{ font-size: {_px(zoom, 22)}px; font-weight: 600; }}
 QLabel#summary {{ color: {fg}; font-size: {_px(zoom, 17)}px; }}
 QLabel#path, QLabel#nextWhy {{ color: {muted}; font-size: {_px(zoom, 14)}px; }}
+QLabel#helpLink {{ font-size: {_px(zoom, 15)}px; font-weight: 600; }}
+QLabel#helpLink a {{ color: {link}; text-decoration: underline; }}
 QLabel#intro {{ color: {muted}; font-size: {_px(zoom, 15)}px; }}
 QLabel#section {{ color: {accent}; font-size: {_px(zoom, 15)}px; font-weight: 600; padding-top: 6px; }}
 QLabel#parmName {{ font-size: {_px(zoom, 16)}px; font-weight: 600; }}
@@ -724,7 +776,7 @@ QLabel#now, QLabel#optionNow {{ color: {accent}; }}
 QLabel#option {{ color: {muted}; }}
 QLabel#nextNames {{ color: {fg}; font-weight: 600; font-size: {_px(zoom, 15)}px; }}
 QLabel#figureLabel {{ color: {muted}; font-size: {_px(zoom, 14)}px; }}
-QLabel#zoom {{ color: {fg}; font-size: {_px(zoom, 13)}px; padding: 0 6px; }}
+QLabel#zoom {{ color: {fg}; font-size: 13px; padding: 0 6px; }}
 QLabel#error, QLabel#callout, QLabel#cache {{
     background: {call}; color: {fg}; padding: 8px 10px; border-radius: 6px;
 }}
@@ -745,10 +797,10 @@ QTabBar::tab {{
 QTabBar::tab:selected {{ color: {fg}; border-bottom: 2px solid {accent}; }}
 QPushButton {{
     background: {select}; color: {fg}; border: none; border-radius: 6px;
-    padding: 4px 10px; font-size: {_px(zoom, 13)}px;
+    padding: 4px 10px; font-size: 13px;
 }}
-QPushButton#zoomOut {{ font-size: {_px(zoom, 12)}px; padding: 2px 8px; }}
-QPushButton#zoomIn {{ font-size: {_px(zoom, 18)}px; font-weight: 700; padding: 1px 10px; }}
+QPushButton#zoomOut {{ font-size: 12px; padding: 2px 8px; }}
+QPushButton#zoomIn {{ font-size: 18px; font-weight: 700; padding: 1px 10px; }}
 QPushButton:hover, QPushButton:checked {{ background: {accent}; color: {bg}; }}
 QTabBar::tab:hover {{ background: {select}; color: {fg}; }}
 QListWidget#outline::item:hover {{ background: {select}; color: {fg}; }}

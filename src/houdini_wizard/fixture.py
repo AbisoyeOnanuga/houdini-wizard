@@ -77,6 +77,8 @@ def check_file(path: Path) -> None:
         fail("an empty input was not shown")
     if "Size" not in study["note"] or any(char.isdigit() for char in study["note"]):
         fail("the note invented a value or missed the parameter")
+    if study["cache"]:
+        fail("a fast node was told to cache")
     primitive = next(section for section in loaded.sections if section.heading == "Primitive Type")
     if [name for name, _body in primitive.options] != ["Polygon"]:
         fail("Polygon was not kept as a menu choice on Primitive Type")
@@ -173,8 +175,11 @@ def check_install() -> None:
         fail("the current menu choice was not marked")
     if not guide["steps"] or not any(figure["images"] for figure in guide["figures"]):
         fail("the shelf picture and steps were not picked up")
-    if "File Cache" not in guide["cache"] or any(char.isdigit() for char in guide["cache"]):
-        fail("the cache note invented a number or missed the technique")
+    if guide["cache"]:
+        fail("UV Unwrap was given a cache note it does not need")
+    pelt = next(item for item in guide["related_nodes"] if item["help"].endswith("/uvpelt"))
+    if pelt["label"].lower() == "uvpelt" or not pelt["note"] or "installed help lists" in pelt["note"].lower():
+        fail("a related node was missing its help-browser name or its own note")
     print("UV Unwrap: Strip and Square, current choice marked, picture and steps included.")
     print()
 
@@ -195,6 +200,14 @@ def check_install() -> None:
         fail("the parameter tooltip was not pulled from the linked help page")
     if "Gaussian" not in [name for name, _body in distribution.options]:
         fail("a menu tooltip did not bring its choices")
+    spectrum = load_zip_member(str(INSTALL_ZIP), "sop/oceanspectrum.txt")
+    heavy = build_study(
+        spectrum.sections,
+        {"type_label": "Ocean Spectrum", "category": "Sop", "hfs": hfs},
+        "",
+    )
+    if "File Cache" not in heavy["cache"] or any(char.isdigit() for char in heavy["cache"]):
+        fail("a heavy cook was missing the cache technique, or the note invented a number")
     print("Ocean Spectrum: Wind Speed and Distribution use the parameter-window tooltip.")
     print()
 
