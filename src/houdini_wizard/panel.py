@@ -71,36 +71,48 @@ def _window(widgets, core, gui, hou):
     outer.setSpacing(8)
 
     bar = widgets.QHBoxLayout()
+    dialog.nav_button = widgets.QPushButton("Sections")
+    dialog.nav_button.setCheckable(True)
+    dialog.nav_button.setChecked(True)
+    dialog.nav_button.setToolTip("Hide or show the section list")
     dialog.zoom_out = widgets.QPushButton("A−")
-    dialog.zoom_out.setToolTip("Smaller text")
+    dialog.zoom_out.setObjectName("zoomOut")
+    dialog.zoom_out.setToolTip("Smaller text, in steps of 10%")
     dialog.zoom_label = widgets.QLabel("100%")
     dialog.zoom_label.setObjectName("zoom")
+    dialog.zoom_slider = widgets.QSlider(core.Qt.Horizontal)
+    dialog.zoom_slider.setRange(70, 180)
+    dialog.zoom_slider.setValue(100)
+    dialog.zoom_slider.setFixedWidth(120)
+    dialog.zoom_slider.setToolTip("Text size")
     dialog.zoom_in = widgets.QPushButton("A+")
-    dialog.zoom_in.setToolTip("Larger text")
+    dialog.zoom_in.setObjectName("zoomIn")
+    dialog.zoom_in.setToolTip("Larger text, in steps of 10%")
     dialog.theme_button = widgets.QPushButton("Light")
     dialog.theme_button.setToolTip("Switch the panel colors")
     dialog.close_button = widgets.QPushButton("Exit")
     dialog.close_button.setToolTip("Close the panel")
+    bar.addWidget(dialog.nav_button)
     bar.addWidget(dialog.zoom_out)
     bar.addWidget(dialog.zoom_label)
+    bar.addWidget(dialog.zoom_slider)
     bar.addWidget(dialog.zoom_in)
     bar.addStretch(1)
     bar.addWidget(dialog.theme_button)
     bar.addWidget(dialog.close_button)
     outer.addLayout(bar)
-    dialog.zoom_out.clicked.connect(lambda: _nudge_zoom(dialog, 1 / 1.1))
-    dialog.zoom_in.clicked.connect(lambda: _nudge_zoom(dialog, 1.1))
+    dialog.zoom_out.clicked.connect(lambda: _step_zoom(dialog, -10))
+    dialog.zoom_in.clicked.connect(lambda: _step_zoom(dialog, 10))
+    dialog.zoom_slider.valueChanged.connect(lambda value: _set_zoom(dialog, value, snap=False))
+    dialog.nav_button.toggled.connect(lambda open_nav: _toggle_nav(dialog, open_nav))
     dialog.theme_button.clicked.connect(lambda: _toggle_theme(dialog))
     dialog.close_button.clicked.connect(dialog.close)
 
-    body = widgets.QHBoxLayout()
-    body.setSpacing(12)
     dialog.outline = widgets.QListWidget()
     dialog.outline.setObjectName("outline")
-    dialog.outline.setFixedWidth(210)
+    dialog.outline.setMinimumWidth(0)
     dialog.outline.setHorizontalScrollBarPolicy(core.Qt.ScrollBarAlwaysOff)
     dialog.outline.setFrameShape(widgets.QFrame.NoFrame)
-    body.addWidget(dialog.outline)
     dialog.outline.currentRowChanged.connect(lambda row: _on_outline(dialog, row))
 
     dialog.scroll = widgets.QScrollArea()
@@ -113,8 +125,15 @@ def _window(widgets, core, gui, hou):
     dialog.page_layout.setContentsMargins(2, 2, 8, 8)
     dialog.page_layout.setSpacing(10)
     dialog.scroll.setWidget(dialog.page)
-    body.addWidget(dialog.scroll, 1)
-    outer.addLayout(body, 1)
+
+    dialog.splitter = widgets.QSplitter(core.Qt.Horizontal)
+    dialog.splitter.addWidget(dialog.outline)
+    dialog.splitter.addWidget(dialog.scroll)
+    dialog.splitter.setStretchFactor(1, 1)
+    dialog.splitter.setCollapsible(0, True)
+    dialog.splitter.setSizes([210, 720])
+    dialog._nav_width = 210
+    outer.addWidget(dialog.splitter, 1)
 
     def present(study: dict, raise_window: bool) -> None:
         previous = dialog._study
@@ -127,13 +146,13 @@ def _window(widgets, core, gui, hou):
             dialog._fitted = True
         if dialog.isMinimized():
             return
-        dialog.show()
+        if raise_window or dialog.isVisible():
+            dialog.show()
         if raise_window:
             dialog.raise_()
             dialog.activateWindow()
 
     def closeEvent(event) -> None:
-        _stop_follow(hou)
         widgets.QDialog.closeEvent(dialog, event)
 
     dialog.present = present
@@ -146,14 +165,13 @@ def _window(widgets, core, gui, hou):
 def _fill(dialog, study: dict, reveal: bool = False) -> None:
     widgets = dialog._widgets
     layout = dialog.page_layout
-    while layout.count():
-        item = layout.takeAt(0)
-        child = item.widget()
-        if child is not None:
-            child.deleteLater()
-        nested = item.layout()
-        if nested is not None:
-            _clear_layout(nested)
+    _empty_layout(layout)
+    for child in list(dialog.page.children()):
+        if child is layout or not hasattr(child, "hide"):
+            continue
+        child.hide()
+        child.setParent(None)
+        child.deleteLater()
 
     dialog._anchors = {}
     dialog._folder_index = {}
@@ -511,9 +529,41 @@ def _selected_name(study: dict | None) -> str:
     return ""
 
 
-def _nudge_zoom(dialog, factor: float) -> None:
-    dialog._zoom = min(1.8, max(0.85, dialog._zoom * factor))
+def _step_zoom(dialog, delta: int) -> None:
+    current = int(round(dialog._zoom * 100))
+    if delta > 0:
+        target = (current // 10) * 10 + 10
+    else:
+        base = (current // 10) * 10
+        target = base if current != base else current - 10
+    _set_zoom(dialog, target, snap=True)
+
+
+def _set_zoom(dialog, percent: int, snap: bool) -> None:
+    percent = int(percent)
+    if snap:
+        percent = int(round(percent / 10.0) * 10)
+    percent = max(70, min(180, percent))
+    if abs(dialog._zoom - (percent / 100)) < 0.001 and int(round(dialog._zoom * 100)) == percent:
+        dialog.zoom_label.setText(f"{percent}%")
+        return
+    dialog._zoom = percent / 100
+    dialog.zoom_slider.blockSignals(True)
+    dialog.zoom_slider.setValue(percent)
+    dialog.zoom_slider.blockSignals(False)
     _restyle(dialog)
+
+
+def _toggle_nav(dialog, open_nav: bool) -> None:
+    sizes = dialog.splitter.sizes()
+    total = max(sum(sizes), 800)
+    if open_nav:
+        width = dialog._nav_width or 210
+        dialog.splitter.setSizes([width, max(200, total - width)])
+        return
+    if sizes[0] > 24:
+        dialog._nav_width = sizes[0]
+    dialog.splitter.setSizes([0, total])
 
 
 def _toggle_theme(dialog) -> None:
@@ -522,11 +572,33 @@ def _toggle_theme(dialog) -> None:
 
 
 def _restyle(dialog) -> None:
+    percent = int(round(dialog._zoom * 100))
     dialog.setStyleSheet(_style(dialog._theme, dialog._zoom))
-    dialog.zoom_label.setText(f"{int(round(dialog._zoom * 100))}%")
+    dialog.zoom_label.setText(f"{percent}%")
+    if hasattr(dialog, "zoom_slider"):
+        dialog.zoom_slider.blockSignals(True)
+        dialog.zoom_slider.setValue(percent)
+        dialog.zoom_slider.blockSignals(False)
     dialog.theme_button.setText("Dark" if dialog._theme == "light" else "Light")
     if dialog._study:
         _fill(dialog, dialog._study, reveal=False)
+
+
+def _empty_layout(layout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        child = item.widget()
+        if child is not None:
+            child.hide()
+            child.setParent(None)
+            child.deleteLater()
+        nested = item.layout()
+        if nested is not None:
+            _empty_layout(nested)
+
+
+def _clear_layout(layout) -> None:
+    _empty_layout(layout)
 
 
 def _fit(dialog) -> None:
@@ -538,17 +610,6 @@ def _fit(dialog) -> None:
     dialog.resize(min(980, int(area.width() * 0.52)), min(820, int(area.height() * 0.78)))
 
 
-def _clear_layout(layout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        child = item.widget()
-        if child is not None:
-            child.deleteLater()
-        nested = item.layout()
-        if nested is not None:
-            _clear_layout(nested)
-
-
 def _follow(hou, window, refresh) -> None:
     global _CALLBACK
     if refresh is None or not hasattr(hou.ui, "addEventLoopCallback"):
@@ -557,7 +618,7 @@ def _follow(hou, window, refresh) -> None:
         return
 
     def tick() -> None:
-        if _WINDOW is None or not _WINDOW.isVisible():
+        if _WINDOW is None:
             _stop_follow(hou)
             return
         try:
@@ -686,5 +747,16 @@ QPushButton {{
     background: {select}; color: {fg}; border: none; border-radius: 6px;
     padding: 4px 10px; font-size: {_px(zoom, 13)}px;
 }}
-QPushButton:hover {{ background: {line}; }}
+QPushButton#zoomOut {{ font-size: {_px(zoom, 12)}px; padding: 2px 8px; }}
+QPushButton#zoomIn {{ font-size: {_px(zoom, 18)}px; font-weight: 700; padding: 1px 10px; }}
+QPushButton:hover, QPushButton:checked {{ background: {accent}; color: {bg}; }}
+QTabBar::tab:hover {{ background: {select}; color: {fg}; }}
+QListWidget#outline::item:hover {{ background: {select}; color: {fg}; }}
+QSplitter::handle {{ background: {line}; }}
+QSplitter::handle:hover {{ background: {accent}; }}
+QSlider::groove:horizontal {{ height: 4px; background: {line}; border-radius: 2px; }}
+QSlider::handle:horizontal {{
+    width: 14px; height: 14px; margin: -5px 0; background: {accent}; border-radius: 7px;
+}}
+QSlider::handle:horizontal:hover {{ background: {fg}; }}
 """

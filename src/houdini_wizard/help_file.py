@@ -13,12 +13,14 @@ import textwrap
 import zipfile
 from dataclasses import dataclass
 
-_HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1\s*$")
+_HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1(?:\s*\(([^)]*)\))?\s*$")
 _LABEL = re.compile(r"^(\s*)(\S.*):\s*$")
 _CHANNELS = re.compile(r"^\s*#channels:\s*(.+)$")
 _DIRECTIVE = re.compile(r"^\s*:")
 _META = re.compile(r"^\s*#\w+:")
 _INCLUDE = re.compile(r":include\s+(\S+):")
+_ID = re.compile(r"^\s*#id:\s*(\S*)")
+_CONTENTFROM = re.compile(r"^\s*#contentfrom:\s*(\S+)")
 
 # Hou category name -> folder inside nodes.zip.
 _FOLDERS = {
@@ -48,6 +50,8 @@ class Section:
     role: str = "section"
     folder: str = ""
     options: tuple[tuple[str, str], ...] = ()
+    anchor: str = ""
+    contentfrom: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -57,6 +61,8 @@ class Section:
             "role": self.role,
             "folder": self.folder,
             "options": [{"name": name, "body": body} for name, body in self.options],
+            "anchor": self.anchor,
+            "contentfrom": self.contentfrom,
         }
 
 
@@ -121,12 +127,15 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
             # The next Label: at the left edge is still a parameter.
             param_indent = None
             title = heading.group(2).strip()
+            anchor = (heading.group(3) or "").strip()
             if block == "parameters":
                 folder_name = title
                 folder_content_indent = None
-                start(title, "folder")
+                started = start(title, "folder")
             else:
-                start(title, "title" if block == "title" else block)
+                started = start(title, "title" if block == "title" else block)
+            if anchor:
+                started.anchor = anchor
             continue
         label = _LABEL.match(line)
         if block in {"parameters", "inputs", "outputs"} and label and not stripped.startswith("#") and not stripped.startswith(":"):
@@ -148,6 +157,14 @@ def parse_wiki(text: str) -> tuple[Section, ...]:
                 current.option = choice
                 continue
         if current is None:
+            continue
+        found_id = _ID.match(line)
+        if found_id and current.option is None:
+            current.anchor = found_id.group(1).strip()
+            continue
+        found_from = _CONTENTFROM.match(line)
+        if found_from and current.option is None:
+            current.contentfrom = found_from.group(1).strip()
             continue
         channels = _CHANNELS.match(line)
         if channels and current.option is None and not current.lines:
@@ -211,13 +228,72 @@ def installed_help(category: str, internal: str, hfs: str | None = None) -> Help
     zip_path = os.path.join(help_root, "nodes.zip")
     if os.path.isfile(zip_path):
         try:
-            return load_zip_member(zip_path, member)
+            return resolve_contentfrom(load_zip_member(zip_path, member), help_root)
         except FileNotFoundError:
             pass
     loose = os.path.join(help_root, "nodes", member.replace("/", os.sep))
     if os.path.isfile(loose):
-        return load_path(loose)
+        return resolve_contentfrom(load_path(loose), help_root)
     raise FileNotFoundError(member)
+
+
+def resolve_contentfrom(loaded: HelpFile, help_root: str) -> HelpFile:
+    """Copy a parameter's text from the help file a `#contentfrom` line names.
+
+    Copernicus nodes often point at the SOP page for the same control. That
+    page is the tooltip the parameter window shows.
+    """
+    if not any(section.contentfrom for section in loaded.sections):
+        return loaded
+    zip_path = os.path.join(help_root, "nodes.zip")
+    donors: dict[str, HelpFile] = {}
+    resolved: list[Section] = []
+    for section in loaded.sections:
+        if not section.contentfrom:
+            resolved.append(section)
+            continue
+        donor = _donor_section(donors, zip_path, section.contentfrom)
+        if donor is None:
+            resolved.append(section)
+            continue
+        body = donor.body if len(donor.body) > len(section.body) else section.body
+        options = donor.options or section.options
+        resolved.append(
+            Section(
+                section.heading,
+                section.channels or donor.channels,
+                body,
+                section.role,
+                section.folder,
+                options,
+                section.anchor,
+                "",
+            )
+        )
+    return HelpFile(loaded.source, tuple(resolved), loaded.includes)
+
+
+def _donor_section(donors: dict[str, HelpFile], zip_path: str, contentfrom: str) -> Section | None:
+    path, _, anchor = contentfrom.partition("#")
+    member = path.strip("/").split("nodes/", 1)[-1]
+    if not member.endswith(".txt"):
+        member += ".txt"
+    if not os.path.isfile(zip_path):
+        return None
+    if member not in donors:
+        try:
+            donors[member] = load_zip_member(zip_path, member)
+        except (OSError, FileNotFoundError):
+            return None
+    wanted = anchor.strip().lower()
+    for section in donors[member].sections:
+        if section.anchor.lower() == wanted:
+            return section
+    compact = re.sub(r"[^a-z0-9]", "", wanted)
+    for section in donors[member].sections:
+        if re.sub(r"[^a-z0-9]", "", section.heading.lower()) == compact:
+            return section
+    return None
 
 
 class _Draft:
@@ -229,6 +305,8 @@ class _Draft:
         self.lines: list[str] = []
         self.options: list[_Draft] = []
         self.option: _Draft | None = None
+        self.anchor = ""
+        self.contentfrom = ""
 
 
 def _finish(draft: _Draft) -> Section:
@@ -236,7 +314,16 @@ def _finish(draft: _Draft) -> Section:
         draft.lines.pop()
     body = textwrap.dedent("\n".join(draft.lines)).strip()
     options = tuple((item.heading, _body(item)) for item in draft.options)
-    return Section(draft.heading, tuple(draft.channels), body, draft.role, draft.folder, options)
+    return Section(
+        draft.heading,
+        tuple(draft.channels),
+        body,
+        draft.role,
+        draft.folder,
+        options,
+        draft.anchor,
+        draft.contentfrom,
+    )
 
 
 def _body(draft: _Draft) -> str:

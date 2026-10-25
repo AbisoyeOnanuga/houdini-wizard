@@ -12,7 +12,7 @@ from houdini_wizard.panel import show_panel
 from houdini_wizard.pick import decide, explain_context, finish, pick_heading
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
-_seen = {"signature": None}
+_seen = {"signature": None, "guide_token": 0}
 
 
 def show_card() -> None:
@@ -38,6 +38,9 @@ def show_card() -> None:
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     card, note = _store(card_id, request)
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
+    from houdini_wizard.values import attach_guides
+
+    attach_guides(scene, help_file.sections, allow_model=True)
     extra = ""
     if request.get("needs_model") and card.get("kind") == "quote":
         try:
@@ -89,6 +92,9 @@ def _poll(hou):
         return None
     _seen["signature"] = signature
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
+    from houdini_wizard.values import attach_guides
+
+    attach_guides(scene, help_file.sections, allow_model=True)
     focus = parm_label or ""
     return help_file.sections, scene, focus, ""
 
@@ -104,7 +110,11 @@ def _signature(node, parm_name: str, parm_label: str, error_text: str) -> tuple:
     current = ""
     if parm_label:
         current = _values(node).get(parm_label, "")
-    return (node.path(), internal, parm_name, parm_label, error_text.strip(), tuple(wired), current)
+    return (node.path(), internal, parm_name, parm_label, error_text.strip(), tuple(wired), current, _seen.get("guide_token", 0))
+
+
+def note_guides_ready() -> None:
+    _seen["guide_token"] = _seen.get("guide_token", 0) + 1
 
 
 def _scene(node, error_text: str, hfs: str = "", includes: tuple[str, ...] = (), parm_label: str = "") -> dict:
@@ -119,6 +129,7 @@ def _scene(node, error_text: str, hfs: str = "", includes: tuple[str, ...] = (),
         "parm_label": parm_label,
         "values": _values(node),
         "ranges": _ranges(node),
+        "tooltips": _tooltips(node),
         "inputs": _ends(node, incoming=True),
         "outputs": _ends(node, incoming=False),
     }
@@ -165,6 +176,23 @@ def _display(parm) -> str:
         return text if len(text) <= 80 else text[:77] + "..."
     except Exception:
         return ""
+
+
+def _tooltips(node) -> dict:
+    found: dict[str, str] = {}
+    try:
+        parms = node.parms()
+    except Exception:
+        return found
+    for parm in parms:
+        try:
+            label = parm.parmTemplate().label()
+            text = parm.parmTemplate().help() or ""
+        except Exception:
+            continue
+        if label and text.strip() and label not in found:
+            found[label] = text.strip()
+    return found
 
 
 def _ranges(node) -> dict:

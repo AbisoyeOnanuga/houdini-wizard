@@ -11,7 +11,7 @@ from pathlib import Path
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from houdini_wizard.context import build_study
+from houdini_wizard.context import build_study, _value_guide
 from houdini_wizard.help_file import load_path, load_zip_member
 from houdini_wizard.pick import decide
 from houdini_wizard.workflow import TASK_QUEUE, CardWorkflow, open_card, pick_heading_activity, workflow_id
@@ -98,10 +98,24 @@ def check_file(path: Path) -> None:
     )
     size_row = next(row for row in ranged["parameters"] if row["name"] == "Size")
     menu_row = next(row for row in ranged["parameters"] if row["name"] == "Primitive Type")
-    if "Pick 0" not in size_row["range"] or "Pick 1" not in size_row["range"]:
+    if "from 0 to 1" not in size_row["range"] or "what the line above" in size_row["range"]:
         fail("a 0 to 1 parameter did not explain both ends")
     if menu_row["range"]:
         fail("a menu parameter was given a number range")
+    rotate = _value_guide(
+        "Rotate",
+        "Rotate angles in degrees",
+        {"low": 0, "high": 360, "low_strict": False, "high_strict": False},
+    )
+    if "no rotation" not in rotate or "360" not in rotate or "clockwise" in rotate.lower():
+        fail("a rotation was not explained from its own help")
+    ocean = _value_guide(
+        "Ocean Size",
+        "The world space size of the generated ocean spectrum. Increasing this value will fit more wave peaks into a single ocean tile.",
+        {"low": 0, "high": 50, "low_strict": True, "high_strict": False},
+    )
+    if "wave peaks" not in ocean or "what the line above" in ocean:
+        fail("a parameter with a real tooltip fell back to a generic line")
     print("Panel: geometry network, empty input, Size left for the artist.")
     print()
 
@@ -162,6 +176,18 @@ def check_install() -> None:
     if translate.folder != "Transformation" or u_range.folder:
         fail(f"parameter tabs were mixed up: Translate={translate.folder!r} U Range={u_range.folder!r}")
     print("UV Project: Transformation stays its own tab, and U Range is not pulled into it.")
+    print()
+
+    from houdini_wizard.help_file import installed_help
+
+    ocean_help = installed_help("Cop", "oceanspectrum", str(INSTALL_ZIP.parents[2]))
+    wind = next(section for section in ocean_help.sections if section.heading == "Wind Speed")
+    distribution = next(section for section in ocean_help.sections if section.heading == "Distribution")
+    if "Higher wind speeds" not in wind.body:
+        fail("the parameter tooltip was not pulled from the linked help page")
+    if "Gaussian" not in [name for name, _body in distribution.options]:
+        fail("a menu tooltip did not bring its choices")
+    print("Ocean Spectrum: Wind Speed and Distribution use the parameter-window tooltip.")
     print()
 
 

@@ -43,6 +43,8 @@ def build_study(sections: tuple[Section, ...] | list[Section], scene: dict, focu
         scene.get("values") or {},
         scene.get("parm_label") or focus_heading,
         scene.get("ranges") or {},
+        scene.get("tooltips") or {},
+        scene.get("guides") or {},
     )
     groups = _next_groups(sections, title_body, usage["steps"])
     heading = focus.heading if focus else ""
@@ -192,7 +194,7 @@ def _usage(text: str) -> dict:
     return {"steps": steps[:6], "figures": figures[:8]}
 
 
-def _parameters(sections, values: dict, selected: str, ranges: dict) -> list[dict]:
+def _parameters(sections, values: dict, selected: str, ranges: dict, tooltips: dict, guides: dict) -> list[dict]:
     rows: list[dict] = []
     for section in sections:
         if section.role != "parameter":
@@ -207,55 +209,72 @@ def _parameters(sections, values: dict, selected: str, ranges: dict) -> list[dic
                     "current": bool(current) and current.lower() == name.lower(),
                 }
             )
+        tooltip = plain(str(tooltips.get(section.heading, "") or ""))
+        meaning = plain(section.body)
+        if len(tooltip) > len(meaning):
+            meaning = tooltip
         span = None if options else ranges.get(section.heading)
+        written = str(guides.get(section.heading, "") or "")
         rows.append(
             {
                 "name": section.heading,
                 "folder": section.folder,
-                "meaning": plain(section.body),
+                "meaning": meaning,
                 "current": current,
                 "selected": bool(selected) and selected.lower() == section.heading.lower(),
                 "options": options,
-                "range": _range_text(span),
+                "range": written or _value_guide(section.heading, meaning, span),
             }
         )
     return rows
 
 
-def _range_text(span: dict | None) -> str:
-    """Say what the low and high ends of a number parameter are for.
-
-    The numbers are the parameter window's own range. The sentence does not
-    invent a look or a third value.
-    """
+def _value_guide(name: str, meaning: str, span: dict | None) -> str:
+    """Say what the ends of a number parameter do, using the help's own words."""
     if not span:
         return ""
     low = _fmt(span.get("low"))
     high = _fmt(span.get("high"))
     if low == high:
         return ""
-    described = "what the line above describes"
-    low_strict = bool(span.get("low_strict"))
-    high_strict = bool(span.get("high_strict"))
-    if low_strict and high_strict:
-        return (
-            f"Pick {low} if you want the least of {described}. "
-            f"Pick {high} if you want the most of it. The value stays between those two."
-        )
-    if low_strict and not high_strict:
-        return (
-            f"Pick {low} if you want the least of {described}. "
-            f"The slider runs up to {high}, and you can type higher if you want more of it."
-        )
-    if high_strict and not low_strict:
-        return (
-            f"The slider runs down to {low}. Pick {high} if you want the most of {described}. "
-            f"You can type below {low}."
-        )
-    return (
-        f"The slider runs from {low} to {high}, and you can type outside it. "
-        f"Pick {low} if you want less of {described}. Pick {high} if you want more of it."
-    )
+    reach = _reach(low, high, bool(span.get("low_strict")), bool(span.get("high_strict")))
+    effect = _effect_clause(meaning)
+    if effect:
+        return f"{name} {reach}. {effect}"
+    lead = meaning.rstrip(".") if meaning else name
+    sentence = f"{lead} {reach}."
+    if _is_angle(name, meaning):
+        sentence += " 0 means no rotation. Positive values turn one way and negative values turn the opposite way."
+    elif low == "0":
+        sentence += f" 0 means none of this. {high} is the high end of the slider."
+    return sentence
+
+
+def _reach(low: str, high: str, low_strict: bool, high_strict: bool) -> str:
+    extra = []
+    if not high_strict:
+        extra.append(f"greater than {high}")
+    if not low_strict and low != "0":
+        extra.append(f"below {low}")
+    elif not low_strict and low == "0":
+        extra.append(f"below {low}")
+    if extra:
+        return f"from {low} to {high}, or {' or '.join(extra)}"
+    return f"from {low} to {high}"
+
+
+def _effect_clause(meaning: str) -> str:
+    if not meaning:
+        return ""
+    for sentence in re.split(r"(?<=[.!?])\s+", meaning.strip()):
+        if re.search(r"\b(increasing|decreasing|higher|lower|stronger|weaker|faster|slower)\b", sentence, re.I):
+            return sentence.strip()
+    return ""
+
+
+def _is_angle(name: str, meaning: str) -> bool:
+    text = f"{name} {meaning}".lower()
+    return any(word in text for word in ("rotate", "rotation", "angle", "degrees"))
 
 
 def _fmt(value) -> str:
