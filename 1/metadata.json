@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M5TNA8QYB4VNAPV2X6F5ZNGS",
+  "session_id": "e96d75ea-ea02-4990-b94a-81678a4c1465",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-25T23:11:17.4849931Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "save_step_count": 1,
+  "files_touched": [
+    "README.md",
+    "src/houdini_wizard/fixture.py",
+    "src/houdini_wizard/history.py",
+    "src/houdini_wizard/shelf.py",
+    "src/houdini_wizard/why.py",
+    "src/houdini_wizard/workflow.py"
+  ],
+  "agent": "Cursor",
+  "model": "grok-4.7-high",
+  "turn_id": "84fa7eab9140",
+  "checkpoint_transcript_start": 434,
+  "transcript_lines_at_start": 434,
+  "compact_transcript_start": 93,
+  "token_usage": {
+    "input_tokens": 366960,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2763520,
+    "output_tokens": 26783,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 28,
+    "context_tokens": 241380,
+    "context_window_size": 256000
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-25T23:11:17.3836538Z",
+    "agent_lines": 4,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 747,
+    "human_removed": 0,
+    "total_committed": 751,
+    "total_lines_changed": 758,
+    "agent_percentage": 1.4511873350923483,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
