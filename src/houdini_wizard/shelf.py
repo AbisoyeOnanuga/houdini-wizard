@@ -49,13 +49,13 @@ def show_card() -> None:
     from houdini_wizard.values import attach_guides
 
     attach_guides(scene, help_file.sections, allow_model=True)
-    extra = ""
+    extra = note
     if request.get("needs_model") and card.get("kind") == "quote":
         try:
             from houdini_wizard.context import build_study
 
             study = build_study(help_file.sections, scene, card.get("title") or "")
-            extra = explain_context(error_text, study["focus_heading"], study["wires_in"])
+            extra = f"{explain_context(error_text, study['focus_heading'], study['wires_in'])} {note}".strip()
         except Exception:
             extra = note
     focus = card.get("title") or parm_label or ""
@@ -322,7 +322,6 @@ def _selected_parm(hou, node):
 def _store(card_id: str, request: dict) -> tuple[dict, str]:
     try:
         card = _run_async(_open(card_id, request))
-        return card, ""
     except Exception as exc:
         note = f"Temporal did not keep this card ({exc}). The quote is still from the help file."
         heading = request.get("known_heading") or ""
@@ -334,6 +333,18 @@ def _store(card_id: str, request: dict) -> tuple[dict, str]:
                 heading = "none"
                 note = f"Temporal and Gemma did not run ({model_exc}). Open a heading from the file."
         return finish(request, heading), note
+    kept_id = card.get("card_id") or card_id
+    if card.get("kept") == "reopened":
+        note = (
+            f"Reopened the stored card {kept_id}. The model was not asked again. "
+            "The same history is at http://localhost:8233"
+        )
+    else:
+        note = (
+            f"Stored this card as {kept_id}. Quit Houdini, open it again, select this node, "
+            "and click the shelf. History is at http://localhost:8233"
+        )
+    return card, note
 
 
 async def _open(card_id: str, request: dict) -> dict:

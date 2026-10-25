@@ -46,17 +46,28 @@ def workflow_id(node_path: str, parm_name: str, error_text: str) -> str:
 
 
 async def open_card(client: Client, card_id: str, request: dict) -> dict:
+    """Run the card, or return the one already stored under this id.
+
+    The workflow result stays as the quote. ``kept`` is added here so the
+    shelf can say whether this click stored a new card or reopened one.
+    """
     try:
-        return await client.execute_workflow(
+        card = await client.execute_workflow(
             CardWorkflow.run,
             request,
             id=card_id,
             task_queue=TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
         )
+        kept = "stored"
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(card_id)
-        return await handle.result()
+        card = await handle.result()
+        kept = "reopened"
+    card = dict(card)
+    card["kept"] = kept
+    card["card_id"] = card_id
+    return card
 
 
 async def connect(address: str | None = None) -> Client:
@@ -74,7 +85,7 @@ async def run_worker() -> None:
         workflows=[CardWorkflow],
         activities=[pick_heading_activity],
     )
-    print(f"Houdini wizard worker on {TASK_QUEUE}")
+    print(f"Houdini wizard worker on {TASK_QUEUE}", flush=True)
     await worker.run()
 
 

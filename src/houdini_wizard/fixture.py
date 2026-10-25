@@ -283,6 +283,8 @@ async def check_restore() -> None:
                 second = await open_card(env.client, card_id, quoted)
                 if first["title"] != "Uniform Scale" or second["title"] != first["title"]:
                     fail("the same workflow id did not restore the quote")
+                if first.get("kept") != "stored" or second.get("kept") != "reopened":
+                    fail("the second click did not report the stored card")
                 if calls["n"] != 0:
                     fail("Gemma ran for a heading that was already named")
                 print(f"Restored card: {second['title']}")
@@ -293,6 +295,8 @@ async def check_restore() -> None:
                 again = await open_card(env.client, other_id, unnamed)
                 if listed["kind"] != "list" or again["headings"] != listed["headings"]:
                     fail("the unnamed error did not restore the heading list")
+                if listed.get("kept") != "stored" or again.get("kept") != "reopened":
+                    fail("the unnamed error did not report the reopened card")
                 if calls["n"] != 1:
                     fail(f"Gemma ran {calls['n']} times for one card")
                 print("Restored heading list from the same workflow id. Gemma ran once.")

@@ -71,6 +71,22 @@ D:\Documents\vscode\houdini-wizard\.venv\Scripts\python -m houdini_wizard.workfl
 
 It prints `Houdini wizard worker on houdini-wizard` and stays running. The shelf can show a quote with both of these stopped. Restore, and a Gemma pick, need the server and the worker.
 
+List the cards this project has stored:
+
+```powershell
+python -m houdini_wizard.history
+```
+
+Each line is a workflow id. The same id is the row in the Web UI. A later shelf click on that node, parameter, and cook error reopens that row.
+
+### Test the stored card
+
+Leave the dev server and the worker running. Restart Houdini so it loads the current shelf code. Select a node and click **Section card**. The top of the window names the id, for example `Stored this card as wizard-…`.
+
+Quit Houdini with File > Quit, or close its window. Leave the two terminals running. The card is in `.temporal\dev.db`, not inside Houdini, so ending the Houdini process is the same proof once the shelf click has finished. Open Houdini again, select that same node and the same parameter, and click the shelf. The note changes to `Reopened the stored card`. The Web UI still has one workflow for that id, and Gemma is not called again.
+
+A named heading never starts the Gemma activity, so the retry is a different click. Use a cook error whose text does not contain a help heading, and stop Ollama before the click. The activity in the Web UI tries up to three times. Start Ollama again before those attempts run out if you want the card to finish.
+
 ## Install the shelf in Houdini 22
 
 This machine's hython is Python 3.13, same as the worker. Install the package into hython so the shelf can import it:
@@ -93,4 +109,12 @@ Restart Houdini. The shelf tab is **Houdini Wizard**. The tool is **Section card
 
 Ollama, the dev server, and the worker need to be running for the Gemma pick and for restoring a card after Houdini quits. If Temporal is down, the shelf still shows the quote and says the card was not stored.
 
-Entire records this build so a later search can explain why the shelf skips Gemma. The click does not call Entire.
+## Why the code exists
+
+Entire records the agent session that built this tool. The shelf click does not call it. A technical reader asks from this repository:
+
+```powershell
+python -m houdini_wizard.why "why a named heading skips Gemma"
+```
+
+With no question, the same command lists the checkpoints for the build, each tied to the commit it produced. One checkpoint, `01M5QRE9FZAKB6Q9V2K6HRS78R`, is the session where the card became one Temporal workflow: the heading pick is an activity with three attempts, and a heading that is already named never becomes that activity. `entire checkpoint explain <id>` opens that session. The artist-facing card stays the help quote.
