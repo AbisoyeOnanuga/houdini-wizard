@@ -208,6 +208,20 @@ def check_install() -> None:
     )
     if "File Cache" not in heavy["cache"] or any(char.isdigit() for char in heavy["cache"]):
         fail("a heavy cook was missing the cache technique, or the note invented a number")
+    flip = load_zip_member(str(INSTALL_ZIP), "dop/flipsolver.txt")
+    sim = build_study(
+        flip.sections,
+        {"type_label": "FLIP Solver", "category": "Dop", "hfs": hfs},
+        "",
+    )
+    help_paths = [item["help"] for item in sim["related_nodes"]]
+    if not any(path.startswith("/nodes/dop/") for path in help_paths):
+        fail("related nodes on a DOP were limited to SOP")
+    if "/nodes/sop/particlefluidsurface" not in help_paths:
+        fail("a SOP listed beside a DOP was dropped")
+    fluid = next(item for item in sim["related_nodes"] if item["help"].endswith("/flipobject"))
+    if "particle fluid object" not in fluid["note"].lower():
+        fail("a DOP related note was not read from that node's help")
     print("Ocean Spectrum: Wind Speed and Distribution use the parameter-window tooltip.")
     print()
 
