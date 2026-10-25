@@ -36,7 +36,7 @@ def attach_guides(scene: dict, sections, allow_model: bool) -> None:
         key = _key(section.heading, meaning, span)
         cached = _CACHE.get(key)
         guides[section.heading] = cached or _value_guide(section.heading, meaning, span)
-        if cached or key in _SKIP or not allow_model or _effect_clause(meaning) or len(meaning) > 140:
+        if cached or key in _SKIP or not allow_model or not _needs_model(meaning):
             continue
         pending.append(
             {
@@ -58,6 +58,14 @@ def _meaning(section, tooltips: dict) -> str:
     tooltip = plain(str(tooltips.get(section.heading, "") or ""))
     body = plain(section.body)
     return tooltip if len(tooltip) > len(body) else body
+
+
+def _needs_model(meaning: str) -> bool:
+    """Gemma only when the tip is a short label and does not already say what the value does."""
+    if _effect_clause(meaning):
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", meaning)
+    return len(words) <= 6
 
 
 def _key(name: str, meaning: str, span: dict) -> tuple:

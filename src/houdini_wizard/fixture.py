@@ -116,6 +116,14 @@ def check_file(path: Path) -> None:
     )
     if "wave peaks" not in ocean or "what the line above" in ocean:
         fail("a parameter with a real tooltip fell back to a generic line")
+    from houdini_wizard.values import _needs_model
+
+    if not _needs_model("Rotate angles in degrees"):
+        fail("a short angle label should be the one Gemma is allowed to rewrite")
+    if _needs_model("The wind speed. Higher wind speeds create larger low-frequency waves."):
+        fail("a tooltip that already explains the value was sent to Gemma")
+    if _needs_model("Size of the box along xyz axes."):
+        fail("an understandable size tip was sent to Gemma")
     print("Panel: geometry network, empty input, Size left for the artist.")
     print()
 
