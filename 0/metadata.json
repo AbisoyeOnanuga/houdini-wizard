@@ -1,0 +1,81 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M5T6GJSRQY8V27KNDZW5AF7Z",
+  "session_id": "16b7c5b4-2085-4289-864a-e4fb7d5be56d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-25T18:52:35.0813116Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "save_step_count": 2,
+  "files_touched": [
+    "skills/houdini-values/SKILL.md",
+    "src/houdini_wizard/fixture.py",
+    "src/houdini_wizard/values.py"
+  ],
+  "agent": "Cursor",
+  "model": "grok-4.7-high-fast",
+  "turn_id": "35c079bf74ce",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 220685,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2986624,
+    "output_tokens": 38717,
+    "api_call_count": 2
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-25T18:52:35.0676746Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 58,
+    "human_modified": 888,
+    "human_removed": 0,
+    "total_committed": 58,
+    "total_lines_changed": 946,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1996,
+      "user_lines_removed": 969,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "README.md": 96,
+        "src/houdini_wizard/context.py": 398,
+        "src/houdini_wizard/fixture.py": 241,
+        "src/houdini_wizard/help_file.py": 252,
+        "src/houdini_wizard/panel.py": 690,
+        "src/houdini_wizard/shelf.py": 319
+      },
+      "user_removed_per_file": {
+        "README.md": 98,
+        "src/houdini_wizard/context.py": 136,
+        "src/houdini_wizard/fixture.py": 174,
+        "src/houdini_wizard/help_file.py": 220,
+        "src/houdini_wizard/panel.py": 150,
+        "src/houdini_wizard/shelf.py": 191
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 473,
+      "user_lines_removed": 241,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "skills/houdini-values/SKILL.md": 17,
+        "src/houdini_wizard/fixture.py": 275,
+        "src/houdini_wizard/values.py": 181
+      },
+      "user_removed_per_file": {
+        "src/houdini_wizard/fixture.py": 241
+      }
+    }
+  ]
+}
