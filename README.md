@@ -1,6 +1,6 @@
 # Houdini wizard tool
 
-Shelf tool for Houdini. You select a node, or a parameter whose channel is selected, or you are stuck on a cook error. The card quotes the matching section from the help that shipped with this install.
+Shelf tool for Houdini. You select a node, or a parameter whose channel is selected, or you are stuck on a cook error. The panel tells you which network you are in, what is wired into the node, and which parameter the help is talking about. The body is still a quote from the help that shipped with this install. You still set the values and the look.
 
 ![Flow](docs/flow.svg)
 

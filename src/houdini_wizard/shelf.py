@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
+import threading
 
 from houdini_wizard.help_file import installed_help
 from houdini_wizard.panel import show_panel
@@ -35,7 +37,7 @@ def show_card() -> None:
     card, note = _store(card_id, request)
     scene = _scene(node, error_text)
     extra = ""
-    if request.get("needs_model"):
+    if request.get("needs_model") and card.get("kind") == "quote":
         try:
             from houdini_wizard.context import build_study
 
@@ -139,7 +141,7 @@ def _selected_parm(hou, node):
 
 def _store(card_id: str, request: dict) -> tuple[dict, str]:
     try:
-        card = asyncio.run(_open(card_id, request))
+        card = _run_async(_open(card_id, request))
         return card, ""
     except Exception as exc:
         note = f"Temporal did not keep this card ({exc}). The quote is still from the help file."
@@ -159,26 +161,31 @@ async def _open(card_id: str, request: dict) -> dict:
     return await open_card(client, card_id, request)
 
 
-def _present(hou, card: dict, note: str, sections) -> None:
-    if card["kind"] == "list":
-        labels = [section.heading for section in sections]
-        if not labels:
-            hou.ui.displayMessage("This help file has no headings.", title="Houdini wizard")
-            return
-        message = "No heading matched. Open one from this file."
-        if note:
-            message = f"{message}\n\n{note}"
-        picks = hou.ui.selectFromList(labels, exclusive=True, title="Houdini wizard", message=message)
-        if not picks:
-            return
-        section = sections[picks[0]]
-        _show_quote(hou, section.heading, section.body, "")
-        return
-    _show_quote(hou, card["title"], card["body"], note)
+def _run_async(coro):
+    """Run one coroutine from the Houdini UI thread.
 
+    Houdini already has an event loop. asyncio.run refuses that loop and
+    throws the coroutine away, which is the console warning.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
 
-def _show_quote(hou, title: str, body: str, note: str) -> None:
-    text = body or "This heading has no text in the installed file."
-    if note:
-        text = f"{text}\n\n{note}"
-    hou.ui.displayMessage(text, title=title, severity=hou.severityType.Message)
+    box: dict = {}
+
+    def _worker() -> None:
+        try:
+            box["value"] = asyncio.run(coro)
+        except BaseException as exc:
+            box["error"] = exc
+        finally:
+            if inspect.getcoroutinestate(coro) in {inspect.CORO_CREATED, inspect.CORO_SUSPENDED}:
+                coro.close()
+
+    thread = threading.Thread(target=_worker, name="houdini-wizard-temporal", daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in box:
+        raise box["error"]
+    return box["value"]

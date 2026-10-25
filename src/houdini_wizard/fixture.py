@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import warnings
 from pathlib import Path
 
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from houdini_wizard.context import build_study
 from houdini_wizard.help_file import load_path, load_zip_member
 from houdini_wizard.pick import decide
 from houdini_wizard.workflow import TASK_QUEUE, CardWorkflow, open_card, pick_heading_activity, workflow_id
@@ -55,6 +57,27 @@ def check_file(path: Path) -> None:
     print("No heading named. The file's headings:")
     for heading in unnamed["headings"]:
         print(f"- {heading}")
+    print()
+
+    study = build_study(
+        loaded.sections,
+        {
+            "type_label": "Box",
+            "category": "Sop",
+            "path": "/obj/geo1/box1",
+            "error": "",
+            "inputs": [{"label": "Bounding source", "wired": ""}],
+            "outputs": [],
+        },
+        "Size",
+    )
+    if "geometry network" not in study["where"]:
+        fail("the panel did not say which network the node is in")
+    if "nothing is wired here" not in " ".join(study["wires_in"]):
+        fail("an empty input was not shown")
+    if "Size" not in study["note"] or any(char.isdigit() for char in study["note"]):
+        fail("the note invented a value or missed the parameter")
+    print("Panel: geometry network, empty input, Size left for the artist.")
     print()
 
 
@@ -119,10 +142,30 @@ async def check_restore() -> None:
         pick_mod.pick_heading = original
 
 
+def check_ui_thread() -> None:
+    """The shelf runs while Houdini's loop is already running."""
+    from houdini_wizard.shelf import _run_async
+
+    async def sample():
+        return "kept"
+
+    async def inside_houdini_loop():
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", RuntimeWarning)
+            value = _run_async(sample())
+        leaked = [item for item in caught if "never awaited" in str(item.message)]
+        if value != "kept" or leaked:
+            fail("the shelf dropped the Temporal coroutine")
+        print("Panel open: the Temporal call is awaited on Houdini's loop.")
+
+    asyncio.run(inside_houdini_loop())
+
+
 def main() -> None:
     os.chdir(ROOT)
     check_file(FIXTURE)
     check_install()
+    check_ui_thread()
     asyncio.run(check_restore())
     print("Fixture passed.")
 
