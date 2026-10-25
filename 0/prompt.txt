@@ -1,0 +1,17 @@
+not sure if it is to do with using Entire agent-session tracker or something else with Cursor, but source control staging changes and committing is not working. I click commit and it just loads in the UI and never updates. If I use CLI with git, it works and I can see that they are pushed to the repo, but the UI is not loading and updating properly like before. then i noticed the icon for the cursor app in my start menu is pixely or not as clear as it normally is. what could be the problem here and how to fix it. it's not something I directly did, but cursor needs to be cleared of this issue
+
+---
+
+so have you affected how my entire-sessions are tracked? I need them continuously updated with every agent session I added entire to and my commits
+
+---
+
+so future work will now work as intended and be tracked on their respective entire sessions or repos?
+
+---
+
+it happened again. any reason why it re-occurs after fixing
+
+---
+
+i just made 2 pending commits for squad-builder, but would like to redo them before push
