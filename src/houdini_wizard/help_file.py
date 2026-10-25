@@ -78,9 +78,12 @@ class HelpFile:
 def parse_wiki(text: str) -> tuple[Section, ...]:
     """Split one wiki file.
 
-    `= Title =` and `== Folder ==` are headings. After `@parameters`,
-    `@inputs`, or `@outputs`, a `Label:` line at the parameter indent is a
-    heading too. A more-indented `Label:` is a menu choice on that parameter.
+    `= Title =` and `== Folder ==` are headings. Deeper headings, `===` and
+    `====`, nest inside the folder above them. That depth comes from the file
+    being read, so each node keeps its own parameter-pane folders. After
+    `@parameters`, `@inputs`, or `@outputs`, a `Label:` line at the parameter
+    indent is a heading too. A more-indented `Label:` is a menu choice on that
+    parameter.
     `#channels:` holds the parameter's real names (`/sizex`).
     """
     sections: list[_Draft] = []

@@ -200,6 +200,16 @@ def check_install() -> None:
     if "By Island Symmetry (default)" not in [name for name, _body in align.options]:
         fail("Axis Alignment lost the menu choices from the help file")
     print("UV Layout: Overrides stays inside Islands To Pack.")
+    vellum = load_zip_member(str(INSTALL_ZIP), "sop/vellumsolver.txt")
+    if not any(section.role == "parameter" and section.groups[:2] == ("Solver", "Collisions") for section in vellum.sections):
+        fail("Vellum Solver did not keep Collisions inside its own Solver folder")
+    shader = load_zip_member(str(INSTALL_ZIP), "vop/principledshader.txt")
+    if not any(
+        section.role == "parameter" and section.groups[:3] == ("Surface", "Specular", "Reflection")
+        for section in shader.sections
+    ):
+        fail("Principled Shader did not keep Reflection inside Surface / Specular")
+    print("Vellum Solver and Principled Shader use the same folder nesting.")
     print()
 
     from houdini_wizard.help_file import installed_help
