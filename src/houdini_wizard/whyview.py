@@ -11,7 +11,7 @@ PAGE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Houdini wizard · Why this code exists</title>
+<title>Houdini wizard · Read more about the agent session behind this code</title>
 <script>
 (function () {
   var theme = "dark";
@@ -104,7 +104,7 @@ PAGE = """<!DOCTYPE html>
 <main>
   <header>
     <div>
-      <h1>Why this code exists</h1>
+      <h1>Read more about the agent session behind this code</h1>
       <p class="lede" id="lede">Search the agent session that built this shelf. The shelf does not open this page.</p>
     </div>
     <div class="tools">
