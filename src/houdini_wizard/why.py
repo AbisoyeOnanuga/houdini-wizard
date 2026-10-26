@@ -29,6 +29,8 @@ from urllib.parse import parse_qs, urlparse
 from houdini_wizard.whyview import PAGE
 
 ROOT = Path(__file__).resolve().parents[2]
+SESSION = "e96d75ea-ea02-4990-b94a-81678a4c1465"
+SESSION_URL = f"https://entire.com/gh/AbisoyeOnanuga/houdini-wizard/session/{SESSION}"
 PAGE_PORT = 8245
 QUESTIONS = (
     "why a named heading skips Gemma",
@@ -91,7 +93,7 @@ def repo_slug() -> str:
 
 
 def dashboard_url() -> str:
-    return f"https://entire.com/gh/{repo_slug()}"
+    return f"https://entire.com/gh/{repo_slug()}/session/{SESSION}"
 
 
 def shape_hit(item: dict) -> dict:
@@ -151,14 +153,15 @@ def shape_detail(payload: dict, *, commit: str = "", dashboard: str = "") -> dic
         if len(sessions) == 4:
             break
     sha = commit if _SHA.fullmatch(commit or "") else ""
-    slug = dashboard or dashboard_url()
+    base = dashboard or dashboard_url()
+    slug = base.split("/session/", 1)[0]
     return {
         "id": _plain(payload.get("checkpoint_id"), 32),
         "branch": _plain(payload.get("branch"), 80),
         "files": _files(payload.get("files_touched")),
         "sessions": sessions,
         "commit": sha,
-        "dashboard": slug,
+        "dashboard": base,
         "commit_url": f"{slug}/commit/{sha}" if sha else "",
     }
 

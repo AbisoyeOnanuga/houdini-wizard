@@ -109,7 +109,7 @@ PAGE = """<!DOCTYPE html>
     </div>
     <div class="tools">
       <button type="button" id="theme" class="theme">Light</button>
-      <a class="dev" id="dash" href="https://entire.com">On entire.com</a>
+      <a class="dev" id="dash" href="https://entire.com/gh/AbisoyeOnanuga/houdini-wizard/session/e96d75ea-ea02-4990-b94a-81678a4c1465">On entire.com</a>
     </div>
   </header>
   <form id="find">

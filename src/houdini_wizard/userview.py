@@ -252,6 +252,7 @@ _PAGE = """<!DOCTYPE html>
       </div>
       <button type="button" id="theme" class="theme">Light</button>
       <a class="dev" href="http://localhost:8233">Developer monitor</a>
+      <a class="dev" href="https://entire.com/gh/AbisoyeOnanuga/houdini-wizard/session/e96d75ea-ea02-4990-b94a-81678a4c1465">Why this code exists</a>
     </div>
   </header>
   <p class="empty" id="empty">Open the tool on a node. Saved cards show up here.</p>
