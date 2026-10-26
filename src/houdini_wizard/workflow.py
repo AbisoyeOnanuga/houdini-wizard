@@ -1,8 +1,9 @@
 """One Temporal Python workflow per card.
 
-A normal node is saved as well as a cook error. The activity runs only when
-Gemma must choose a heading. The help text stays in Houdini. The finished run
-stays in the local database so the same card can be opened again.
+A normal node is saved, and so is a node showing an error, a warning, or a
+message. The activity runs only when Gemma must choose a heading. The help
+text stays in Houdini. The finished run stays in the local database so the
+same card can be opened again.
 """
 
 from __future__ import annotations
@@ -119,7 +120,7 @@ class CardWorkflow:
             picked = await workflow.execute_activity(
                 pick_heading_activity,
                 {"headings": request.get("headings") or [], "error_text": request.get("error_text") or ""},
-                start_to_close_timeout=timedelta(seconds=90),
+                start_to_close_timeout=timedelta(seconds=120),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if isinstance(picked, dict):
@@ -155,8 +156,8 @@ def workflow_id(node_path: str, parm_name: str, error_text: str) -> str:
 async def open_card(client: Client, card_id: str, request: dict) -> dict:
     """Run the heading pick, or wait for the pick already running under this id.
 
-    The help text stays in this process. Temporal stores the node, the cook
-    error, the situation, and the heading. ``kept`` says whether this call
+    The help text stays in this process. Temporal stores the node, what it is
+    showing, the situation, and the heading. ``kept`` says whether this call
     started the run or found it still going.
     """
     logged = _log_card(request)
