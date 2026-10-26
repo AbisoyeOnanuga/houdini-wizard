@@ -1,0 +1,17 @@
+why it says 'from this install' and not 'saved', 'restored', etc. server is working or no? I also want to test by uninstalling this from Houdini and uninstalling termporal, but keep my db files to do a fresh run like a new user. just let me know the steps so I can report the feedback
+
+---
+
+move these aside? should I move them. if I leave them, is it okay. or it's necessary for the fresh start?
+
+---
+
+great. so the saved, restored and temporal related messages still are great UX messages for the demo, 'from this install' is okay, but just so we have that indicator of temporal's actions on our tool
+
+---
+
+we still need the 'Saved, Restored, and Not saved' since temporal is being used with our tool and we want to be aware of the status on every session. it is separate information to 'from this install'
+
+---
+
+it now works with this fresh install, but no work saved in temporal. if you recall, I took out the db file, so it is not creating and saving the new work. it should save regardless of the error, it needs to update the logic for how it starts being useful to the user so it's not just errors that get captured. a cook error is not often, but it does occur for cook related tasks or nodes
