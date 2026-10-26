@@ -16,6 +16,7 @@ from houdini_wizard.panel import show_panel
 from houdini_wizard.memory import recall, uses_workflow
 from houdini_wizard.pick import decide, finish, pick_heading
 from houdini_wizard.service import ensure_running, history_exists, worker_python
+from houdini_wizard.userlog import record
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
 _seen = {"signature": None, "guide_token": 0, "status_token": 0, "shown_status": 0}
@@ -55,7 +56,7 @@ def show_card() -> None:
             severity=hou.severityType.Warning,
         )
         return
-    request = decide(help_file.sections, parm_name, parm_label, error_text)
+    request = _note_node(decide(help_file.sections, parm_name, parm_label, error_text), node, parm_label)
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     _present(card_id, request)
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
@@ -89,6 +90,14 @@ def _warm_service() -> None:
         service = _failure_service(exc)
     _seen["session"] = service
     _seen["status_token"] = _seen.get("status_token", 0) + 1
+    record(
+        {
+            "state": service["state"],
+            "title": service["title"],
+            "detail": service["detail"],
+            "node_label": "This session",
+        }
+    )
 
 
 def _selection(hou, announce: bool = True):
@@ -143,7 +152,7 @@ def _poll(hou):
         help_file = installed_help(category, internal, hfs)
     except Exception:
         return None
-    request = decide(help_file.sections, parm_name, parm_label, error_text)
+    request = _note_node(decide(help_file.sections, parm_name, parm_label, error_text), node, parm_label)
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     if not status_only:
         _present(card_id, request)
@@ -157,6 +166,17 @@ def _poll(hou):
         attach_guides(scene, help_file.sections, allow_model=True)
     focus = _focus_for(card_id, request, parm_label)
     return help_file.sections, scene, focus, ""
+
+
+def _note_node(request: dict, node, parm_label: str) -> dict:
+    noted = dict(request)
+    try:
+        noted["node_path"] = node.path()
+    except Exception:
+        noted["node_path"] = ""
+    noted["type_label"] = _type_label(node)
+    noted["shown_parm"] = parm_label
+    return noted
 
 
 def _signature(node, parm_name: str, parm_label: str, error_text: str) -> tuple:
@@ -395,8 +415,10 @@ def _keep_once(card_id: str, request: dict, model: bool) -> None:
         detail = "Saving this heading. If the model times out, the same run tries again."
     else:
         detail = "Saving this card."
-    _mark(card_id, _service("working", detail))
+    saving = _service("working", detail)
+    _mark(card_id, saving)
     _log(f"start {card_id}")
+    _record(saving, request, model)
     threading.Thread(
         target=_keep_worker,
         args=(card_id, request, model),
@@ -416,6 +438,7 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
             card = finish(request, remembered)
             service = _service("restored", _restored_detail(model))
             _publish(card_id, card, service["detail"], "reopened", service)
+            _record(service, _with_heading(request, card), model)
             return
         service = _failure_service(exc)
         note = service["detail"]
@@ -434,6 +457,7 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
         else:
             card = finish(request)
         _publish(card_id, card, note, service["state"], service)
+        _record(service, _with_heading(request, card), model)
         return
     kept_id = card.get("card_id") or card_id
     if card.get("kept") == "reopened":
@@ -444,6 +468,28 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
         state = "stored"
     _log(f"{state} {kept_id}")
     _publish(card_id, card, service["detail"], state, service)
+    _record(service, _with_heading(request, card), model)
+
+
+def _record(service: dict, request: dict, model: bool) -> None:
+    record(
+        {
+            "state": service.get("state"),
+            "title": service.get("title"),
+            "detail": service.get("detail"),
+            "node": request.get("node_path") or "",
+            "node_label": request.get("type_label") or "",
+            "heading": request.get("known_heading") or request.get("shown_parm") or "",
+            "source": "" if model else "From this install",
+        }
+    )
+
+
+def _with_heading(request: dict, card: dict) -> dict:
+    noted = dict(request)
+    if card.get("kind") == "quote" and card.get("title"):
+        noted["known_heading"] = card["title"]
+    return noted
 
 
 def _saved_detail(model: bool) -> str:
