@@ -204,6 +204,9 @@ def _ask(pending: list[dict], node_path: str = "", type_label: str = "") -> dict
     from houdini_wizard.usage import from_ollama
 
     usage = from_ollama(body, model=payload["model"], skill="houdini-values", task="write value lines")
+    from houdini_wizard.usage import attach_resident
+
+    attach_resident(usage, base_url=url.rsplit("/api/chat", 1)[0], model=payload["model"])
     content = str(body.get("message", {}).get("content", "")).strip()
     parsed = json.loads(content)
     found: dict[str, str] = {}

@@ -134,11 +134,28 @@ def _usage(value) -> dict:
     reason = _sentence(value.get("reason"))
     if reason:
         clean["reason"] = reason
-    for key in ("prompt_tokens", "answer_tokens", "attempt", "load_ms", "prompt_ms", "answer_ms", "total_ms", "save_ms"):
+    if value.get("replayed") is True:
+        clean["replayed"] = True
+    done = _plain(value.get("done_reason"), 40)
+    if done:
+        clean["done_reason"] = done
+    limits = {
+        "prompt_tokens": 10_000_000,
+        "answer_tokens": 10_000_000,
+        "attempt": 100,
+        "load_ms": 600_000,
+        "prompt_ms": 600_000,
+        "answer_ms": 600_000,
+        "total_ms": 600_000,
+        "save_ms": 600_000,
+        "model_bytes": 200_000_000_000,
+        "vram_bytes": 200_000_000_000,
+    }
+    for key, limit in limits.items():
         number = value.get(key)
         if isinstance(number, bool) or not isinstance(number, int):
             continue
-        if 0 <= number <= 10_000_000:
+        if 0 <= number <= limit:
             clean[key] = number
     return clean
 

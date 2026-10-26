@@ -456,6 +456,7 @@ def check_userlog() -> None:
                 "prompt_eval_count": 20,
                 "eval_count": 3,
                 "total_duration": 1_500_000_000,
+                "done_reason": "stop",
                 "message": {"content": "do not keep this prompt"},
             },
             model="gemma3:4b",
@@ -464,6 +465,16 @@ def check_userlog() -> None:
         )
         if measured["prompt_tokens"] != 20 or measured["answer_tokens"] != 3 or measured["total_ms"] != 1500:
             fail("model timing was not read from Ollama")
+        if measured.get("done_reason") != "stop":
+            fail("the model log left out how the answer stopped")
+        from houdini_wizard.usage import from_ps
+
+        resident = from_ps(
+            {"models": [{"name": "gemma3:4b", "size": 3_300_000_000, "size_vram": 3_100_000_000}]},
+            "gemma3:4b",
+        )
+        if resident.get("model_bytes") != 3_300_000_000 or resident.get("vram_bytes") != 3_100_000_000:
+            fail("model memory was not read from Ollama")
         if "message" in measured or "content" in measured:
             fail("the model log kept the prompt")
         _record(
@@ -497,6 +508,26 @@ def check_userlog() -> None:
             fail("the session card left out the token counts")
         if "do not keep" in str(font):
             fail("the session card kept the model prompt")
+        record(
+            {
+                "state": "restored",
+                "title": "Restored",
+                "detail": "Brought this heading back. The model was not asked again.",
+                "node": "/obj/geo1/font1",
+                "node_label": "Font",
+                "usage": {
+                    "used": True,
+                    "task": "pick a heading",
+                    "replayed": True,
+                    "prompt_tokens": 20,
+                    "model_bytes": 3_300_000_000,
+                    "vram_bytes": 3_100_000_000,
+                },
+            }
+        )
+        restored = read_events()[-1]
+        if restored.get("usage", {}).get("replayed") is not True or restored["usage"].get("model_bytes") != 3_300_000_000:
+            fail("a restored card lost the model memory")
     if previous is None:
         os.environ.pop("HOUDINI_WIZARD_USERLOG", None)
     else:

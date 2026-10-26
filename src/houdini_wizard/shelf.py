@@ -473,7 +473,12 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
             card = finish(request, remembered)
             service = _service("restored", _restored_detail(model))
             _publish(card_id, card, service["detail"], "reopened", service)
-            _record(service, _with_heading(request, card), model, _settled_usage(request, model, card, elapsed))
+            _record(
+                service,
+                _with_heading(request, card),
+                model,
+                _settled_usage(request, model, card, elapsed, replayed=True),
+            )
             return
         service = _failure_service(exc)
         note = service["detail"]
@@ -507,7 +512,12 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
         state = "stored"
     _log(f"{state} {kept_id}")
     _publish(card_id, card, service["detail"], state, service)
-    _record(service, _with_heading(request, card), model, _settled_usage(request, model, card, elapsed))
+    _record(
+        service,
+        _with_heading(request, card),
+        model,
+        _settled_usage(request, model, card, elapsed, replayed=card.get("kept") == "reopened"),
+    )
 
 
 def _elapsed(started: float) -> int:
@@ -522,7 +532,14 @@ def _opening_usage(model: bool, request: dict) -> dict:
     return {}
 
 
-def _settled_usage(request: dict, model: bool, card: dict, elapsed: int, fallback: dict | None = None) -> dict:
+def _settled_usage(
+    request: dict,
+    model: bool,
+    card: dict,
+    elapsed: int,
+    fallback: dict | None = None,
+    replayed: bool = False,
+) -> dict:
     usage = dict(card.get("usage") or fallback or {})
     if not usage:
         logged = _log_card(request)
@@ -537,6 +554,8 @@ def _settled_usage(request: dict, model: bool, card: dict, elapsed: int, fallbac
     elif not usage.get("reason"):
         usage["reason"] = plain_reason(request)
     usage["save_ms"] = elapsed
+    if replayed:
+        usage["replayed"] = True
     return usage
 
 

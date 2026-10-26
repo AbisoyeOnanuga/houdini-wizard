@@ -91,6 +91,9 @@ def pick_heading(headings: list[str], error_text: str) -> str:
             f"Ollama did not answer at {url}. Pull {model_name} and leave Ollama running."
         ) from exc
     _remember(from_ollama(body, model=model_name, skill="houdini-section", task="pick a heading"))
+    from houdini_wizard.usage import attach_resident
+
+    attach_resident(_RECENT, base_url=url.rsplit("/api/chat", 1)[0], model=model_name)
     content = body.get("message", {}).get("content", "")
     try:
         parsed = json.loads(content)
