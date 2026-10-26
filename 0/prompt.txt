@@ -1,0 +1,9 @@
+great and gemma is not run a second time unless the status or error heading of the node changes (a new error develops), right. if so good, if not update, but don't waste tokens if this is so.
+
+---
+
+great and gemma is not run a second time unless the status or error heading of the node changes (a new error develops), right. if so good, if not update, but don't waste tokens if this is so.
+
+---
+
+just to confirm, I mean if the node's error note changes, that is a different type of error from a previous one for the same node develops in runtime in houdini. secondly , noticed the cards timeline page is still showing model cards below the cards timeline, when model card logs have their own page, this takes up vertical page space on this page
