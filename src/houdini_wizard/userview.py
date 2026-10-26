@@ -223,7 +223,8 @@ _PAGE = """<!DOCTYPE html>
     text-transform: uppercase;
   }
   .note { color: var(--muted); font-size: 15px; margin: 14px 0 0; max-width: 40rem; }
-  #jobs { margin-top: 22px; display: grid; gap: 14px; }
+  #jobs { margin-top: 22px; gap: 14px; }
+  #jobs:not([hidden]) { display: grid; }
   #jobs article { margin: 0; }
   @media (max-width: 720px) {
     .stats { grid-template-columns: 1fr 1fr; }
