@@ -6,16 +6,15 @@ import asyncio
 import inspect
 import json
 import os
-import socket
 import subprocess
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from houdini_wizard.help_file import installed_help
 from houdini_wizard.panel import show_panel
 from houdini_wizard.pick import decide, finish, pick_heading
+from houdini_wizard.service import ensure_running, worker_python
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
 _seen = {"signature": None, "guide_token": 0, "status_token": 0, "shown_status": 0}
@@ -24,6 +23,8 @@ _LOG = Path(__file__).resolve().parents[2] / ".temporal" / "shelf.log"
 
 def show_card() -> None:
     import hou
+
+    threading.Thread(target=_warm_service, name="houdini-wizard-service", daemon=True).start()
 
     selected = _selection(hou, announce=False)
     if selected is None:
@@ -61,6 +62,14 @@ def show_card() -> None:
     _seen["signature"] = _signature(node, parm_name, parm_label, error_text)
     _seen["shown_status"] = _seen.get("status_token", 0)
     show_panel(help_file.sections, scene, focus, "", refresh=lambda: _poll(hou))
+
+
+def _warm_service() -> None:
+    try:
+        ensure_running()
+        _log("service ready")
+    except Exception as exc:
+        _log(f"service {exc}")
 
 
 def _selection(hou, announce: bool = True):
@@ -361,7 +370,7 @@ def _keep_once(card_id: str, request: dict, force: bool = False) -> None:
 
 def _keep_worker(card_id: str, request: dict) -> None:
     try:
-        _ensure_service()
+        ensure_running()
         card = _ask_temporal(card_id, request)
     except Exception as exc:
         _log(f"fail {card_id} {exc}")
@@ -400,91 +409,10 @@ def _keep_worker(card_id: str, request: dict) -> None:
     _publish(card_id, card, service["detail"], state, service)
 
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-_SERVICE = threading.Lock()
-
-
-def _port_open(port: int = 7233) -> bool:
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-            return True
-    except OSError:
-        return False
-
-
-def _temporal_exe() -> str:
-    found = shutil_which("temporal")
-    if found:
-        return found
-    packaged = Path(os.environ.get("LOCALAPPDATA", "")) / (
-        "Microsoft/WinGet/Packages/Temporal.TemporalCLI_Microsoft.Winget.Source_8wekyb3d8bbwe/temporal.exe"
-    )
-    if packaged.is_file():
-        return str(packaged)
-    return ""
-
-
-def shutil_which(name: str) -> str:
-    import shutil
-
-    return shutil.which(name) or ""
-
-
-def _ensure_service() -> None:
-    """Start the local Temporal server and worker if this machine does not already have them.
-
-    Temporal's development server is a separate program. The shelf starts it
-    in the background with the saved database, so opening the tool does not
-    ask the artist to run a command or watch a console.
-    """
-    if _port_open():
-        return
-    with _SERVICE:
-        if _port_open():
-            return
-        temporal = _temporal_exe()
-        if not temporal:
-            raise RuntimeError("Temporal CLI is not installed")
-        database = _LOG.parent / "dev.db"
-        database.parent.mkdir(parents=True, exist_ok=True)
-        flags = _NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        subprocess.Popen(
-            [temporal, "server", "start-dev", "--db-filename", str(database)],
-            creationflags=flags,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            close_fds=True,
-        )
-        subprocess.Popen(
-            [_client_python(), "-m", "houdini_wizard.workflow"],
-            creationflags=flags,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            cwd=str(_LOG.parent.parent),
-            close_fds=True,
-        )
-        for _ in range(40):
-            if _port_open():
-                return
-            time.sleep(0.25)
-        raise RuntimeError("The recovery service did not start")
-
-
-def _client_python() -> str:
-    recorded = _LOG.parent / "client-python.txt"
-    if recorded.is_file():
-        path = recorded.read_text(encoding="utf-8").strip()
-        if path:
-            return path
-    return "python"
-
-
 def _ask_temporal(card_id: str, request: dict) -> dict:
     """Ask the system Python to store the card. Houdini's loop cannot."""
     completed = subprocess.run(
-        [_client_python(), "-m", "houdini_wizard.bridge", card_id],
+        [worker_python(), "-m", "houdini_wizard.bridge", card_id],
         input=json.dumps(request),
         capture_output=True,
         text=True,
@@ -492,7 +420,7 @@ def _ask_temporal(card_id: str, request: dict) -> dict:
         errors="replace",
         timeout=120,
         check=False,
-        creationflags=_NO_WINDOW,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()

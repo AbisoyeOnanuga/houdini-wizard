@@ -1,0 +1,31 @@
+# One install step. Houdini must already be installed.
+# Restart Houdini after this. Opening the shelf starts Temporal.
+
+$ErrorActionPreference = "Stop"
+$Repo = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+$hython = Get-ChildItem "C:\Program Files\Side Effects Software" -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { Join-Path $_.FullName "bin\hython.exe" } |
+    Where-Object { Test-Path $_ } |
+    Select-Object -Last 1
+if (-not $hython) {
+    throw "Houdini was not found. Install Houdini, then run this script again."
+}
+
+& $hython -m pip install --user -e $Repo
+if ($LASTEXITCODE -ne 0) { throw "The shelf package did not install into Houdini's Python." }
+
+$pref = (& $hython -c "import os; print(os.environ.get('HOUDINI_USER_PREF_DIR',''))").Trim()
+if (-not $pref) {
+    $pref = Join-Path $env:USERPROFILE "Documents\houdini22.0"
+}
+$toolbar = Join-Path $pref "toolbar"
+New-Item -ItemType Directory -Force -Path $toolbar | Out-Null
+Copy-Item (Join-Path $Repo "shelf\houdini_wizard.shelf") (Join-Path $toolbar "houdini_wizard.shelf") -Force
+
+& $hython -c "from houdini_wizard.service import ensure_cli; print(ensure_cli())"
+if ($LASTEXITCODE -ne 0) { throw "Temporal could not be prepared." }
+
+Write-Host ""
+Write-Host "Installed. Restart Houdini. The shelf tab is Houdini Wizard, and the tool is Section card."
+Write-Host "Opening the tool starts recovery. The monitor is http://localhost:8233"
