@@ -115,10 +115,13 @@ def _write_worker_stamp() -> None:
         return
 
 
-def release_command(card_id: str) -> list[str]:
-    """CLI delete. The embedded test server does not implement this RPC."""
-    exe = cli_path() or Path("temporal")
-    return [str(exe), "workflow", "delete", "--workflow-id", card_id]
+def history_exists() -> bool:
+    """True when a previous session already left a database file."""
+    database = STATE / "dev.db"
+    try:
+        return database.is_file() and database.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def ensure_running() -> None:

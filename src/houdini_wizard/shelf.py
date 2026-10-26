@@ -15,7 +15,7 @@ from houdini_wizard.help_file import installed_help
 from houdini_wizard.panel import show_panel
 from houdini_wizard.memory import recall, uses_workflow
 from houdini_wizard.pick import decide, finish, pick_heading
-from houdini_wizard.service import ensure_running, worker_python
+from houdini_wizard.service import ensure_running, history_exists, worker_python
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
 _seen = {"signature": None, "guide_token": 0, "status_token": 0, "shown_status": 0}
@@ -25,6 +25,10 @@ _LOG = Path(__file__).resolve().parents[2] / ".temporal" / "shelf.log"
 def show_card() -> None:
     import hou
 
+    _seen.setdefault(
+        "session",
+        _service("working", "Starting the recovery service for this session."),
+    )
     threading.Thread(target=_warm_service, name="houdini-wizard-service", daemon=True).start()
 
     selected = _selection(hou, announce=False)
@@ -66,11 +70,25 @@ def show_card() -> None:
 
 
 def _warm_service() -> None:
+    had_history = history_exists()
     try:
         ensure_running()
         _log("service ready")
+        if had_history:
+            service = _service(
+                "restored",
+                "The recovery service is back for this session. Headings kept earlier are still on this computer.",
+            )
+        else:
+            service = _service(
+                "online",
+                "The recovery service is running for this session. Closing Houdini stops it.",
+            )
     except Exception as exc:
         _log(f"service {exc}")
+        service = _failure_service(exc)
+    _seen["session"] = service
+    _seen["status_token"] = _seen.get("status_token", 0) + 1
 
 
 def _selection(hou, announce: bool = True):
@@ -338,38 +356,21 @@ def _selected_parm(hou, node):
 
 
 def _present(card_id: str, request: dict) -> None:
-    """Show where this card lives. A workflow starts only for a model pick."""
-    if not uses_workflow(request):
-        _mark(
-            card_id,
-            _service(
-                "local",
-                "Quoted from the help installed with Houdini. Looking at a node does not save a workflow.",
-            ),
+    """Save this card. A cook error is included, and so is a normal node."""
+    model = uses_workflow(request)
+    if model:
+        (_seen.get("origins") or {}).pop(card_id, None)
+    else:
+        _seen.setdefault("origins", {})[card_id] = _service(
+            "local",
+            "Quoted from the help installed with Houdini.",
         )
-        return
-    remembered = recall(card_id)
+    stored = dict(request)
+    remembered = recall(card_id) if model else ""
     if remembered:
-        _seen["kept_id"] = card_id
-        _seen["kept_card"] = finish(request, remembered)
-        _seen["kept_state"] = "reopened"
-        _mark(
-            card_id,
-            _service(
-                "restored",
-                "Brought this heading back from this computer. The model was not asked again.",
-            ),
-        )
-        if card_id not in _seen.setdefault("released", set()):
-            _seen["released"].add(card_id)
-            threading.Thread(
-                target=_release_quiet,
-                args=(card_id,),
-                name="houdini-wizard-release",
-                daemon=True,
-            ).start()
-        return
-    _keep_once(card_id, request)
+        stored["known_heading"] = remembered
+        stored["needs_model"] = False
+    _keep_once(card_id, stored, model)
 
 
 def _mark(card_id: str, service: dict) -> None:
@@ -378,35 +379,33 @@ def _mark(card_id: str, service: dict) -> None:
     _seen["status_token"] = _seen.get("status_token", 0) + 1
 
 
-def _keep_once(card_id: str, request: dict) -> None:
-    """Store one heading pick. The same cook error reuses that run.
-
-    Browsing nodes does not call this. A named heading is quoted locally.
-    """
+def _keep_once(card_id: str, request: dict, model: bool) -> None:
+    """Store this card. The same node and parameter reuse the saved run."""
+    existing = (_seen.get("cards") or {}).get(card_id) or {}
+    if existing.get("state") in {"online", "restored"}:
+        return
     state = _seen.get("kept_state")
-    if _seen.get("started_id") == card_id and state in {"keeping", "stored", "reopened"}:
+    if _seen.get("started_id") == card_id and state == "keeping":
         return
     _seen["started_id"] = card_id
     _seen["kept_id"] = card_id
     _seen["kept_state"] = "keeping"
     _seen["kept_card"] = None
-    _mark(
-        card_id,
-        _service(
-            "working",
-            "Saving this heading. If the model times out, the same run tries again.",
-        ),
-    )
+    if model:
+        detail = "Saving this heading. If the model times out, the same run tries again."
+    else:
+        detail = "Saving this card."
+    _mark(card_id, _service("working", detail))
     _log(f"start {card_id}")
     threading.Thread(
         target=_keep_worker,
-        args=(card_id, request),
+        args=(card_id, request, model),
         name="houdini-wizard-temporal",
         daemon=True,
     ).start()
 
 
-def _keep_worker(card_id: str, request: dict) -> None:
+def _keep_worker(card_id: str, request: dict, model: bool) -> None:
     try:
         ensure_running()
         card = _ask_temporal(card_id, request)
@@ -415,15 +414,12 @@ def _keep_worker(card_id: str, request: dict) -> None:
         remembered = recall(card_id)
         if remembered:
             card = finish(request, remembered)
-            service = _service(
-                "restored",
-                "Brought this heading back from this computer. The model was not asked again.",
-            )
+            service = _service("restored", _restored_detail(model))
             _publish(card_id, card, service["detail"], "reopened", service)
             return
         service = _failure_service(exc)
         note = service["detail"]
-        if request.get("needs_model"):
+        if model:
             try:
                 heading = pick_heading(request["headings"], request["error_text"])
                 card = finish(request, heading)
@@ -439,38 +435,30 @@ def _keep_worker(card_id: str, request: dict) -> None:
             card = finish(request)
         _publish(card_id, card, note, service["state"], service)
         return
-    if card.get("released") is False:
-        _log(f"release {card_id} kept the finished run")
     kept_id = card.get("card_id") or card_id
     if card.get("kept") == "reopened":
-        service = _service(
-            "restored",
-            "Brought this heading back from this computer. The model was not asked again.",
-        )
+        service = _service("restored", _restored_detail(model))
         state = "reopened"
     else:
-        service = _service(
-            "online",
-            "This heading is saved on this computer. If the model times out, the same run tries again. Closing Houdini stops the service.",
-        )
+        service = _service("online", _saved_detail(model))
         state = "stored"
     _log(f"{state} {kept_id}")
     _publish(card_id, card, service["detail"], state, service)
 
 
-def _release_quiet(card_id: str) -> None:
-    """Drop a finished run once the heading is already on disk."""
-    try:
-        subprocess.run(
-            [worker_python(), "-m", "houdini_wizard.bridge", card_id, "--release"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+def _saved_detail(model: bool) -> str:
+    if model:
+        return (
+            "This heading is saved. If the model times out, the same run tries again. "
+            "Closing Houdini stops the service."
         )
-    except Exception as exc:
-        _log(f"release {card_id} {exc}")
+    return "This card is saved. Open the tool on this node again and it comes back."
+
+
+def _restored_detail(model: bool) -> str:
+    if model:
+        return "Brought this heading back. The model was not asked again."
+    return "Brought this card back."
 
 
 def _ask_temporal(card_id: str, request: dict) -> dict:
@@ -536,9 +524,17 @@ def _failure_service(exc: Exception) -> dict:
 
 
 def _attach_service(scene: dict, card_id: str) -> None:
-    service = (_seen.get("cards") or {}).get(card_id)
-    if isinstance(service, dict):
-        scene["service"] = dict(service)
+    card = (_seen.get("cards") or {}).get(card_id)
+    if isinstance(card, dict) and card.get("state") != "local":
+        scene["service"] = dict(card)
+    else:
+        scene["service"] = dict(
+            _seen.get("session")
+            or _service("working", "Starting the recovery service for this session.")
+        )
+    origin = (_seen.get("origins") or {}).get(card_id)
+    if isinstance(origin, dict):
+        scene["origin"] = dict(origin)
 
 
 def _focus_for(card_id: str, request: dict, parm_label: str) -> str:

@@ -1,8 +1,7 @@
-"""Headings already chosen for a cook error.
+"""Headings already chosen for a card.
 
-One small file on this computer. A node click that only quotes installed
-help never writes here, and it never starts a workflow. The file keeps the
-newest model picks and drops the older ones.
+One small file on this computer. It keeps the newest headings so a repeat
+does not ask the model again. The Temporal run is what remains in the database.
 """
 
 from __future__ import annotations

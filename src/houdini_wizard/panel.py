@@ -36,6 +36,8 @@ def _qt_panel(sections, scene: dict, focus_heading: str, extra_note: str, refres
     study = build_study(sections, scene, focus_heading)
     if scene.get("service"):
         study["service"] = scene["service"]
+    if scene.get("origin"):
+        study["origin"] = scene["origin"]
     if extra_note:
         study["note"] = f"{extra_note} {study['note']}".strip()
 
@@ -253,6 +255,8 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
     _mark(dialog, "section:overview", header, "Overview")
     if study.get("service"):
         layout.addWidget(_service_banner(widgets, study["service"]))
+    if study.get("origin"):
+        layout.addWidget(_service_banner(widgets, study["origin"]))
 
     if study.get("error"):
         layout.addWidget(_callout(widgets, study["error"], "error"))
@@ -925,6 +929,8 @@ def _follow(hou, window, refresh) -> None:
         study = build_study(sections, scene, focus)
         if scene.get("service"):
             study["service"] = scene["service"]
+        if scene.get("origin"):
+            study["origin"] = scene["origin"]
         if extra:
             study["note"] = f"{extra} {study['note']}".strip()
         window.present(study, raise_window=False)
@@ -953,9 +959,12 @@ def _plain_panel(sections, scene: dict, focus_heading: str, extra_note: str) -> 
 
     study = build_study(sections, scene, focus_heading)
     service = scene.get("service") or {}
+    origin = scene.get("origin") or {}
     lines = [
         service.get("title") or "",
         service.get("detail") or "",
+        origin.get("title") or "",
+        origin.get("detail") or "",
         study.get("where") or "",
         study.get("summary") or "",
         study.get("error") or "",

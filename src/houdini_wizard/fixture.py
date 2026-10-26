@@ -278,11 +278,10 @@ async def check_restore() -> None:
     try:
         quoted = decide(loaded.sections, "scale", "Uniform Scale", "")
         if uses_workflow(quoted):
-            fail("a named heading started a workflow")
+            fail("a named heading asked Gemma")
         card = finish(quoted)
         if card["title"] != "Uniform Scale" or calls["n"] != 0:
             fail("a named heading did not stay a local quote")
-        print("Quote stays on this computer: Uniform Scale")
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             worker = Worker(
@@ -292,6 +291,17 @@ async def check_restore() -> None:
                 activities=[pick_heading_activity],
             )
             async with worker:
+                quote_id = workflow_id("/obj/geo1/box1", "scale", "")
+                first = await open_card(env.client, quote_id, quoted)
+                second = await open_card(env.client, quote_id, quoted)
+                if first["title"] != "Uniform Scale" or second["title"] != first["title"]:
+                    fail("a normal card was not saved")
+                if first.get("kept") != "stored" or second.get("kept") != "reopened":
+                    fail("the same node did not reopen the saved card")
+                if calls["n"] != 0:
+                    fail("Gemma ran for a heading that was already named")
+                print("Saved card without a cook error: Uniform Scale")
+
                 unnamed = decide(loaded.sections, "", "", UNNAMED)
                 if not uses_workflow(unnamed):
                     fail("an unnamed cook error skipped the workflow")
@@ -333,16 +343,6 @@ def check_memory() -> None:
     print()
 
 
-def check_release_command() -> None:
-    from houdini_wizard.service import release_command
-
-    command = release_command("wizard-example")
-    if "delete" not in command or command[-2:] != ["--workflow-id", "wizard-example"]:
-        fail(f"finished runs are not deleted with the CLI: {command}")
-    print("Finished run: removed with the Temporal CLI, not kept as a row.")
-    print()
-
-
 def check_ui_thread() -> None:
     """The shelf runs while Houdini's loop is already running."""
     from houdini_wizard.shelf import _run_async
@@ -367,7 +367,6 @@ def main() -> None:
     check_file(FIXTURE)
     check_install()
     check_memory()
-    check_release_command()
     check_ui_thread()
     asyncio.run(check_restore())
     print("Fixture passed.")

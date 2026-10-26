@@ -1,8 +1,8 @@
-"""One Temporal Python workflow. It retries the heading pick and then lets go.
+"""One Temporal Python workflow per card.
 
-Quotes never enter this workflow. The activity receives the heading names and
-the cook error, not the help text. After the heading is stored on disk, the
-finished run is deleted so the local database is not a row per node click.
+A normal node is saved as well as a cook error. The activity runs only when
+Gemma must choose a heading. The help text stays in Houdini. The finished run
+stays in the local database so the same card can be opened again.
 """
 
 from __future__ import annotations
@@ -56,12 +56,14 @@ async def open_card(client: Client, card_id: str, request: dict) -> dict:
     The help text stays in this process. Temporal stores the heading name.
     ``kept`` says whether this call started the run or found it still going.
     """
+    needs_model = bool(request.get("needs_model")) and not request.get("known_heading")
     slim = {
-        "headings": list(request.get("headings") or []),
         "error_text": request.get("error_text") or "",
         "known_heading": request.get("known_heading") or "",
-        "needs_model": bool(request.get("needs_model")),
+        "needs_model": needs_model,
     }
+    if needs_model:
+        slim["headings"] = list(request.get("headings") or [])
     try:
         heading = await client.execute_workflow(
             CardWorkflow.run,
@@ -80,21 +82,6 @@ async def open_card(client: Client, card_id: str, request: dict) -> dict:
     card["card_id"] = card_id
     card["heading"] = heading or "none"
     return card
-
-
-async def release_card(client: Client, card_id: str) -> None:
-    """Remove a finished run. The heading already lives in the local file."""
-    from temporalio.api.common.v1 import WorkflowExecution
-    from temporalio.api.workflowservice.v1 import DeleteWorkflowExecutionRequest
-
-    handle = client.get_workflow_handle(card_id)
-    description = await handle.describe()
-    await client.workflow_service.delete_workflow_execution(
-        DeleteWorkflowExecutionRequest(
-            namespace=client.namespace,
-            workflow_execution=WorkflowExecution(workflow_id=card_id, run_id=description.run_id),
-        )
-    )
 
 
 async def connect(address: str | None = None) -> Client:
