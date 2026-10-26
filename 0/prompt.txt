@@ -1,0 +1,1 @@
+great, I will test that and after reviewing the temporal workflow docs at https://docs.temporal.io/workflows  we can ensure we are using it correctly with our local LLM in our tool
