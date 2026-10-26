@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M5V5KPV0S5GBFF6FN6RVVV64",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "FLOW.md",
+    "README.md",
+    "setup.ps1",
+    "skills/houdini-context/SKILL.md",
+    "skills/houdini-section/SKILL.md",
+    "src/houdini_wizard/fixture.py",
+    "src/houdini_wizard/pick.py",
+    "src/houdini_wizard/shelf.py",
+    "src/houdini_wizard/usage.py",
+    "src/houdini_wizard/userlog.py",
+    "src/houdini_wizard/userview.py",
+    "src/houdini_wizard/values.py",
+    "src/houdini_wizard/workflow.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 167485,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 14424704,
+    "output_tokens": 89273,
+    "api_call_count": 4
+  }
+}

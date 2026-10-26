@@ -1,0 +1,40 @@
+[Image]
+[Image]
+<image_files>
+The following images were provided by the user and saved to disk for future use:
+1. C:\Users\Administrator\.cursor\projects\d-Documents-vscode-abisoyeo/assets/REDACTED.png
+2. C:\Users\Administrator\.cursor\projects\d-Documents-vscode-abisoyeo/assets/REDACTED.png
+
+These files can be read with tools, copied to other locations, or attached to subagents using the file_attachments parameter.
+</image_files>
+<timestamp>Sunday, Oct 25, 2026, 11:26 PM (UTC-4)</timestamp>
+
+it's working great, but from the screenshot, the session log is saving double for each click and we can clean it up or inspect and fix it to just have a single log. I still see each node click is a workflow entry in the developer monitor, and if that is intentional and the intended and best way for our project we can keep that, if not and there is an optimal way while keeping our intended user-friendly session log and this developer monitor then we look to update that without breaking the temporal system
+
+---
+
+a theme toggle for session log page would be great as well
+
+---
+
+and I think the session log page can have more info per card and details for the user beyond what we have, messages, etc any detail that is useful before they go to developer page
+
+---
+
+we can collect developer and session log data for how the model is used, states and its token usage, and more so that we have a full suite of how our tool works with the model, the skills, task call, its communication with the tool, houdini and how it is operating in performance and spending or using tokens and resources efficiently or not for the user's system.
+
+---
+
+we may also need to update documentation for users to get Ollama and Gemma locally
+
+---
+
+we may also need to update documentation for users to get Ollama and Gemma locally since I have it and they may not have it ready
+
+---
+
+the message:
+
+---
+
+the message: "no cook error named heading" is not understandable by a human, it's not contextual to what it means for a user. because there are several types of houdini node error messages and error types so cook is just one of them that the model can help with and it will use a relevant skill to help with this error from houdini help-browser or houdini error knowledge so that can be improved
