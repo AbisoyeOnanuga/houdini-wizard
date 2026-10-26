@@ -30,10 +30,42 @@ async def pick_heading_activity(request: dict) -> str:
     return pick_heading(request["headings"], request["error_text"])
 
 
+def _log_card(request: dict) -> dict:
+    """What Temporal keeps for this card. The help bodies stay in Houdini."""
+    error_text = request.get("error_text") or ""
+    known = request.get("known_heading") or ""
+    needs_model = bool(request.get("needs_model")) and not known
+    if needs_model:
+        situation = "Cook error needs a heading"
+    elif error_text.strip() and known:
+        situation = "Cook error names a heading"
+    elif known:
+        situation = "Quoted from this install"
+    else:
+        situation = "Opened this node"
+    quote = ""
+    if known:
+        for section in request.get("sections") or []:
+            if isinstance(section, dict) and section.get("heading") == known:
+                quote = section.get("body") or ""
+                break
+    return {
+        "node_path": request.get("node_path") or "",
+        "type_label": request.get("type_label") or "",
+        "parm_label": request.get("shown_parm") or request.get("parm_label") or "",
+        "error_text": error_text,
+        "known_heading": known,
+        "needs_model": needs_model,
+        "situation": situation,
+        "headings": list(request.get("headings") or []),
+        "quote": quote,
+    }
+
+
 @workflow.defn
 class CardWorkflow:
     @workflow.run
-    async def run(self, request: dict) -> str:
+    async def run(self, request: dict) -> dict:
         heading = request.get("known_heading") or ""
         if not heading and request.get("needs_model"):
             heading = await workflow.execute_activity(
@@ -42,32 +74,36 @@ class CardWorkflow:
                 start_to_close_timeout=timedelta(seconds=90),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-        return heading or "none"
+        heading = heading or "none"
+        return {
+            "heading": heading,
+            "situation": request.get("situation") or "",
+            "node_path": request.get("node_path") or "",
+            "type_label": request.get("type_label") or "",
+            "parm_label": request.get("parm_label") or "",
+            "error_text": request.get("error_text") or "",
+            "needs_model": bool(request.get("needs_model")),
+            "quote": request.get("quote") or "",
+        }
 
 
 def workflow_id(node_path: str, parm_name: str, error_text: str) -> str:
     raw = f"{node_path}\n{parm_name}\n{error_text.strip()}"
-    return "wizard-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+    return "wizard-v2-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 async def open_card(client: Client, card_id: str, request: dict) -> dict:
     """Run the heading pick, or wait for the pick already running under this id.
 
-    The help text stays in this process. Temporal stores the heading name.
-    ``kept`` says whether this call started the run or found it still going.
+    The help text stays in this process. Temporal stores the node, the cook
+    error, the situation, and the heading. ``kept`` says whether this call
+    started the run or found it still going.
     """
-    needs_model = bool(request.get("needs_model")) and not request.get("known_heading")
-    slim = {
-        "error_text": request.get("error_text") or "",
-        "known_heading": request.get("known_heading") or "",
-        "needs_model": needs_model,
-    }
-    if needs_model:
-        slim["headings"] = list(request.get("headings") or [])
+    logged = _log_card(request)
     try:
-        heading = await client.execute_workflow(
+        result = await client.execute_workflow(
             CardWorkflow.run,
-            slim,
+            logged,
             id=card_id,
             task_queue=TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
@@ -75,9 +111,10 @@ async def open_card(client: Client, card_id: str, request: dict) -> dict:
         kept = "stored"
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(card_id)
-        heading = await handle.result()
+        result = await handle.result()
         kept = "reopened"
-    card = card_from_heading(request.get("sections") or [], heading)
+    heading = result.get("heading") if isinstance(result, dict) else result
+    card = card_from_heading(request.get("sections") or [], heading or "none")
     card["kept"] = kept
     card["card_id"] = card_id
     card["heading"] = heading or "none"

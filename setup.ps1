@@ -28,4 +28,4 @@ if ($LASTEXITCODE -ne 0) { throw "Temporal could not be prepared." }
 
 Write-Host ""
 Write-Host "Installed. Restart Houdini. The shelf tab is Houdini Wizard, and the tool is Section card."
-Write-Host "Opening the tool starts recovery. The monitor is http://localhost:8233"
+Write-Host "Opening the tool starts recovery in the background. Session log and Developer monitor are buttons on the panel."

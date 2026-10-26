@@ -45,7 +45,7 @@ Each card is one workflow:
 - The help text never enters the workflow. Python quotes the section from this install.
 - The service starts when the tool opens, with no console window. It stops when Houdini exits, including when Houdini is ended from outside, so the process does not stay behind. The rows stay in `.temporal\dev.db`.
 
-The monitor at [http://localhost:8233](http://localhost:8233) lists the cards saved this session. Every session the help window shows **Saving**, then **Saved** or **Restored**, or **Not saved** if the service did not start. A quoted section also shows **From this install**. That line is the help source. The Temporal line is separate.
+The browser stays closed. **Session log** and **Developer monitor** are buttons on the panel, and each page opens only when you click it. [http://localhost:8244](http://localhost:8244) is the session for the person using the tool: Saved, Restored, and Not saved, without workflow ids. [http://localhost:8233](http://localhost:8233) is the developer view of those runs. Each run stores the node path, the node type, the parameter, the cook error, the situation, the heading names, and the quoted sentence when a heading is already known.
 
 Temporal's docs describe `temporal server start-dev` as the local development server, a single program with a database file, not a production cluster and not a window the artist keeps open. A production service would be [Temporal Cloud or a self-hosted cluster](https://docs.temporal.io/production-deployment). This tool uses the local server because the artist is on one computer. Each node you open is one saved card. A cook error that names no heading retries inside that card. The same command, if you ever want to start it yourself, is:
 
@@ -61,7 +61,7 @@ Houdini is the only thing to install first. From this folder, one command instal
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
-Restart Houdini. The shelf tab is **Houdini Wizard**. The tool is **Section card**. Opening it starts the monitor at [http://localhost:8233](http://localhost:8233). Pull the model once if you want heading picks: `ollama pull gemma3:4b`.
+Restart Houdini. The shelf tab is **Houdini Wizard**. The tool is **Section card**. Opening it starts recovery in the background. **Session log** and **Developer monitor** are on the panel. Pull the model once if you want heading picks: `ollama pull gemma3:4b`.
 
 1. Select a node.
 2. To quote one parameter, click its name so that channel is selected, then click the shelf. The label or the `#channels` name has to match a heading. Gemma is not called.

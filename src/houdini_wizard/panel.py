@@ -8,6 +8,10 @@ from __future__ import annotations
 
 from houdini_wizard.context import build_study, image_bytes
 from houdini_wizard.help_file import Section, installed_help, library_catalog
+from houdini_wizard.userlog import PAGE_PORT
+
+_SESSION_URL = f"http://localhost:{PAGE_PORT}"
+_MONITOR_URL = "http://localhost:8233"
 
 _WINDOW = None
 _CALLBACK = None
@@ -112,6 +116,10 @@ def _window(widgets, core, gui, hou):
     dialog.zoom_in.setToolTip("Larger text, in steps of 10%")
     dialog.theme_button = widgets.QPushButton("Light")
     dialog.theme_button.setToolTip("Switch the panel colors")
+    dialog.session_button = widgets.QPushButton("Session log")
+    dialog.session_button.setToolTip("Your saved cards. Opens in the browser when you click.")
+    dialog.monitor_button = widgets.QPushButton("Developer monitor")
+    dialog.monitor_button.setToolTip("The run list. Opens in the browser when you click.")
     dialog.close_button = widgets.QPushButton("Exit")
     dialog.close_button.setToolTip("Close the panel")
     bar.addWidget(dialog.library_button)
@@ -122,8 +130,12 @@ def _window(widgets, core, gui, hou):
     bar.addWidget(dialog.zoom_slider)
     bar.addWidget(dialog.zoom_in)
     bar.addStretch(1)
+    bar.addWidget(dialog.session_button)
+    bar.addWidget(dialog.monitor_button)
     bar.addWidget(dialog.theme_button)
     bar.addWidget(dialog.close_button)
+    dialog.session_button.clicked.connect(lambda: _open_page(dialog, _SESSION_URL))
+    dialog.monitor_button.clicked.connect(lambda: _open_page(dialog, _MONITOR_URL))
     outer.addLayout(bar)
     dialog.zoom_out.clicked.connect(lambda: _step_zoom(dialog, -10))
     dialog.zoom_in.clicked.connect(lambda: _step_zoom(dialog, 10))
@@ -777,6 +789,14 @@ def _help_link(dialog, label: str, path: str):
     button.setFlat(True)
     button.clicked.connect(lambda _checked=False, path=path, dialog=dialog: _open_help(dialog, path))
     return button
+
+
+def _open_page(dialog, url: str) -> None:
+    """Open a local page in the browser. Nothing calls this until a button is clicked."""
+    try:
+        dialog._gui.QDesktopServices.openUrl(dialog._core.QUrl(url))
+    except Exception:
+        return
 
 
 def _open_help(dialog, path: str) -> None:

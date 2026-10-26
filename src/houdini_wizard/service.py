@@ -1,8 +1,8 @@
 """Start the local Temporal service for this shelf, and stop it with Houdini.
 
 Temporal's development server is a separate program. A fresh install downloads
-that program once. Opening the tool starts it in the background. Ending
-Houdini stops it, including when the process is killed, so it does not stay
+that program once. Opening the tool starts it in the background, and the
+browser stays closed. Ending Houdini stops it, including when the process is killed, so it does not stay
 behind and use memory. The artist does not run a terminal command.
 """
 
@@ -19,6 +19,8 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+
+from houdini_wizard.userlog import PAGE_PORT
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / ".temporal"
@@ -161,6 +163,8 @@ def ensure_running() -> None:
                     threading.Event().wait(0.05)
             _spawn("worker", [worker_python(), "-m", "houdini_wizard.workflow"])
             _write_worker_stamp()
+        if not port_open(PAGE_PORT):
+            _spawn("page", [worker_python(), "-m", "houdini_wizard.userview"])
         _register_stop()
 
 
@@ -201,6 +205,11 @@ def _own_existing() -> None:
     worker = _read_pid("worker")
     if worker and _alive(worker) and not _known(worker):
         _note("worker", worker, None)
+    page = _read_pid("page")
+    if not (page and _alive(page)):
+        page = _pid_listening(PAGE_PORT) if port_open(PAGE_PORT) else None
+    if page and not _known(page):
+        _note("page", page, None)
 
 
 def _note(kind: str, pid: int, handle) -> None:

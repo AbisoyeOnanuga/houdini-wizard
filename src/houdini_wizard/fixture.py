@@ -282,6 +282,19 @@ async def check_restore() -> None:
         card = finish(quoted)
         if card["title"] != "Uniform Scale" or calls["n"] != 0:
             fail("a named heading did not stay a local quote")
+        from houdini_wizard.workflow import _log_card
+
+        noted = dict(quoted)
+        noted["node_path"] = "/obj/geo1/box1"
+        noted["type_label"] = "Box"
+        noted["shown_parm"] = "Uniform Scale"
+        logged = _log_card(noted)
+        if logged["node_path"] != "/obj/geo1/box1" or logged["situation"] != "Quoted from this install":
+            fail("the workflow log lost the node")
+        if logged["parm_label"] != "Uniform Scale" or "sections" in logged:
+            fail("the workflow log stored the help file instead of the node")
+        if "Uniform Scale" not in logged["headings"] or not logged["quote"].strip():
+            fail("the workflow log left out the heading list or the quote")
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             worker = Worker(
@@ -343,6 +356,41 @@ def check_memory() -> None:
     print()
 
 
+def check_userlog() -> None:
+    from tempfile import TemporaryDirectory
+
+    from houdini_wizard.userlog import read_events, record
+
+    previous = os.environ.get("HOUDINI_WIZARD_USERLOG")
+    with TemporaryDirectory() as tmp:
+        os.environ["HOUDINI_WIZARD_USERLOG"] = str(Path(tmp) / "user-log.jsonl")
+        record(
+            {
+                "state": "online",
+                "title": "Saved",
+                "detail": "Traceback (most recent call last): File \"shelf.py\", line 1",
+                "node": "/obj/geo1/box1",
+                "node_label": "Box",
+                "heading": "Size",
+                "source": "From this install",
+            }
+        )
+        rows = read_events()
+        if len(rows) != 1 or rows[0]["node"] != "/obj/geo1/box1":
+            fail("the user log dropped the node")
+        if "traceback" in rows[0]["detail"].lower() or "wizard-" in rows[0]["detail"]:
+            fail("the user log kept a traceback")
+        record({"state": "nope", "title": "Saved", "detail": "skip"})
+        if len(read_events()) != 1:
+            fail("an unknown status was logged")
+    if previous is None:
+        os.environ.pop("HOUDINI_WIZARD_USERLOG", None)
+    else:
+        os.environ["HOUDINI_WIZARD_USERLOG"] = previous
+    print("User log: node and heading kept, traceback left out.")
+    print()
+
+
 def check_ui_thread() -> None:
     """The shelf runs while Houdini's loop is already running."""
     from houdini_wizard.shelf import _run_async
@@ -367,6 +415,7 @@ def main() -> None:
     check_file(FIXTURE)
     check_install()
     check_memory()
+    check_userlog()
     check_ui_thread()
     asyncio.run(check_restore())
     print("Fixture passed.")
