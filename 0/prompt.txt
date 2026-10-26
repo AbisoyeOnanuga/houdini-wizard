@@ -1,0 +1,17 @@
+great, it's all running, then we should take this developer workflow look and run a separate page with sanitised and formatted log view for users, that way we have a great use of temporal UX with our app and can have both pages. one for the developer UI and our custom UI for users to have a look at the updates from the user of our tool and they can see a great flow of the logs
+
+---
+
+also noticed the workflow is only logging : "{
+  "error_text": "",
+  "known_heading": "",
+  "needs_model": false
+}" whereas, the previous version of our temporal logs would get more detailed node infor and status or error logging
+
+---
+
+great I will run a new houdini process, and that new page will also auto open and start with the developer monitor as well auto opening and starting in the user's local browser. we don't want to force users to open these pages, unless we include them in our panel so it is a click away. a click away is better so it is user-driven for best UX
+
+---
+
+it's working great, but from the screenshot, the session log is saving double for each click and we can clean it up or inspect and fix it to just have a single log. I still see each node click is a workflow entry in the developer monitor, and if that is intentional and the intended and best way for our project we can keep that, if not and there is an optimal way while keeping our intended user-friendly session log and this developer monitor then we look to update that without breaking the temporal system
