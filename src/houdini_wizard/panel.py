@@ -34,6 +34,8 @@ def _qt_panel(sections, scene: dict, focus_heading: str, extra_note: str, refres
     import hou
 
     study = build_study(sections, scene, focus_heading)
+    if scene.get("service"):
+        study["service"] = scene["service"]
     if extra_note:
         study["note"] = f"{extra_note} {study['note']}".strip()
 
@@ -249,6 +251,8 @@ def _fill(dialog, study: dict, reveal: bool = False) -> None:
     header_layout.addLayout(titles, 1)
     layout.addWidget(header)
     _mark(dialog, "section:overview", header, "Overview")
+    if study.get("service"):
+        layout.addWidget(_service_banner(widgets, study["service"]))
 
     if study.get("error"):
         layout.addWidget(_callout(widgets, study["error"], "error"))
@@ -731,6 +735,25 @@ def _ends_box(widgets, title: str, rows: list[dict], empty: str):
     return box
 
 
+def _service_banner(widgets, service: dict):
+    frame = widgets.QFrame()
+    frame.setObjectName("service")
+    frame.setProperty("state", service.get("state") or "working")
+    column = widgets.QVBoxLayout(frame)
+    column.setContentsMargins(10, 8, 10, 8)
+    column.setSpacing(2)
+    title = widgets.QLabel(service.get("title") or "")
+    title.setObjectName("serviceTitle")
+    column.addWidget(title)
+    detail = service.get("detail") or ""
+    if detail:
+        body = widgets.QLabel(detail)
+        body.setObjectName("serviceDetail")
+        body.setWordWrap(True)
+        column.addWidget(body)
+    return frame
+
+
 def _callout(widgets, text: str, name: str):
     label = widgets.QLabel(text)
     label.setObjectName(name)
@@ -895,6 +918,8 @@ def _follow(hou, window, refresh) -> None:
             return
         sections, scene, focus, extra = payload
         study = build_study(sections, scene, focus)
+        if scene.get("service"):
+            study["service"] = scene["service"]
         if extra:
             study["note"] = f"{extra} {study['note']}".strip()
         window.present(study, raise_window=False)
@@ -922,7 +947,10 @@ def _plain_panel(sections, scene: dict, focus_heading: str, extra_note: str) -> 
     import hou
 
     study = build_study(sections, scene, focus_heading)
+    service = scene.get("service") or {}
     lines = [
+        service.get("title") or "",
+        service.get("detail") or "",
         study.get("where") or "",
         study.get("summary") or "",
         study.get("error") or "",
@@ -961,6 +989,11 @@ def _style(theme: str, zoom: float) -> str:
         )
         link = "#1565c0"
         scroll = "#5c5146"
+        work_bg, work_fg = "#e6e4f2", "#34315f"
+        ok_bg, ok_fg = "#dcecde", "#1d5c32"
+        back_bg, back_fg = "#d9e6f5", "#1a4578"
+        off_bg, off_fg = "#f3e6cf", "#7a5410"
+        bad_bg, bad_fg = "#f6dcd6", "#8a2e24"
     else:
         bg, fg, muted, accent, card, line, nav, select, call = (
             "#241f1b",
@@ -975,6 +1008,11 @@ def _style(theme: str, zoom: float) -> str:
         )
         link = "#8eb7ff"
         scroll = "#efe6d6"
+        work_bg, work_fg = "#2a2838", "#e4def8"
+        ok_bg, ok_fg = "#1c3326", "#c8efd4"
+        back_bg, back_fg = "#1c2c40", "#d4e6fa"
+        off_bg, off_fg = "#3a3224", "#f3e0b8"
+        bad_bg, bad_fg = "#3c2222", "#f6d0c8"
     body = _px(zoom, 14)
     return f"""
 QDialog {{ background: {bg}; color: {fg}; }}
@@ -1001,6 +1039,20 @@ QLabel#zoom {{ color: {fg}; font-size: 13px; padding: 0 6px; }}
 QLabel#error, QLabel#callout, QLabel#cache {{
     background: {call}; color: {fg}; padding: 8px 10px; border-radius: 6px;
 }}
+QFrame#service {{ border-radius: 6px; }}
+QFrame#service QLabel {{ background: transparent; }}
+QLabel#serviceTitle {{ font-weight: 700; font-size: {_px(zoom, 14)}px; }}
+QLabel#serviceDetail {{ font-weight: 400; font-size: {_px(zoom, 14)}px; }}
+QFrame#service[state="working"] {{ background: {work_bg}; }}
+QFrame#service[state="working"] QLabel {{ color: {work_fg}; }}
+QFrame#service[state="online"] {{ background: {ok_bg}; }}
+QFrame#service[state="online"] QLabel {{ color: {ok_fg}; }}
+QFrame#service[state="restored"] {{ background: {back_bg}; }}
+QFrame#service[state="restored"] QLabel {{ color: {back_fg}; }}
+QFrame#service[state="offline"] {{ background: {off_bg}; }}
+QFrame#service[state="offline"] QLabel {{ color: {off_fg}; }}
+QFrame#service[state="error"] {{ background: {bad_bg}; }}
+QFrame#service[state="error"] QLabel {{ color: {bad_fg}; }}
 QListWidget#outline {{ background: {nav}; color: {fg}; border: none; font-size: {body}px; }}
 QListWidget#libraryList {{ background: {bg}; color: {fg}; border: none; font-size: {body}px; }}
 QListWidget#libraryList::item {{ padding: 4px 2px; }}

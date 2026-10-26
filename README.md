@@ -43,7 +43,7 @@ The feature is one durable Workflow, written with the Temporal Python SDK. It is
 - The heading pick is an Activity with three attempts. If Gemma fails, Temporal runs that call again. A heading that was already named never becomes an Activity.
 - The card's id is a Workflow id. The same node and the same cook error reuse that id (`REJECT_DUPLICATE`). The next shelf click returns the stored result and does not call Gemma again. A new cook error is a new id, and a new card.
 
-Open [http://localhost:8233](http://localhost:8233) while the dev server is running. That Web UI is the history of the card: the Workflow, the Activity, and the result. That page is the thing to show in the write-up.
+Open [http://localhost:8233](http://localhost:8233) while the dev server is running. That page is the record for the person who started the server: each card, a retry, and a second open that did not ask the model again. The artist does not open it. The help window shows Saved, Restored, or Not saved on the card itself.
 
 ### Where the CLI installs
 
@@ -77,15 +77,17 @@ List the cards this project has stored:
 python -m houdini_wizard.history
 ```
 
-Each line is a workflow id. The same id is the row in the Web UI. A later shelf click on that node, parameter, and cook error reopens that row.
+Each line is one card. The same id is the row in the Web UI. Opening the tool on that node again reopens that row instead of starting another model call.
 
 ### Test the stored card
 
-Leave the dev server and the worker running. Restart Houdini so it loads the current shelf code. Select a node and click **Section card**. The top of the window names the id, for example `Stored this card as wizard-…`.
+Leave the dev server and the worker running. Restart Houdini so it loads the current shelf code. Select a node and click **Section card**. The help window opens immediately. A banner under the node name changes from Saving to Saved. That row appears at [http://localhost:8233](http://localhost:8233). Finished cards are easy to miss if the page is filtered to running workflows only. `python -m houdini_wizard.history` prints the same rows.
 
-Quit Houdini with File > Quit, or close its window. Leave the two terminals running. The card is in `.temporal\dev.db`, not inside Houdini, so ending the Houdini process is the same proof once the shelf click has finished. Open Houdini again, select that same node and the same parameter, and click the shelf. The note changes to `Reopened the stored card`. The Web UI still has one workflow for that id, and Gemma is not called again.
+The window follows the selection, and that follow keeps the card too. The banner stays put when the text size or the value lines update.
 
-A named heading never starts the Gemma activity, so the retry is a different click. Use a cook error whose text does not contain a help heading, and stop Ollama before the click. The activity in the Web UI tries up to three times. Start Ollama again before those attempts run out if you want the card to finish.
+Quit Houdini with File > Quit, or end it from Task Manager, after the banner says Saved. Leave the server and the worker running. Open Houdini, select that same node and the same parameter, and click the shelf. The banner changes to Restored. The monitor still has one workflow for that id, and the model is not asked again.
+
+A named heading never starts the model activity. To see the retry, use a cook error whose text does not contain a help heading, and stop Ollama before the click. The activity in the monitor tries up to three times. Start Ollama again before those attempts run out if you want the card to finish. Closing Houdini during those attempts does not start a second run. The next time you open the tool on that node, it waits for the run already in progress and then shows that result.
 
 ## Install the shelf in Houdini 22
 

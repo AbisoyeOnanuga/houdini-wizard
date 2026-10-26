@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
+import subprocess
 import threading
+from datetime import datetime, timezone
+from pathlib import Path
 
 from houdini_wizard.help_file import installed_help
 from houdini_wizard.panel import show_panel
-from houdini_wizard.pick import decide, explain_context, finish, pick_heading
+from houdini_wizard.pick import decide, finish, pick_heading
 from houdini_wizard.workflow import connect, open_card, workflow_id
 
-_seen = {"signature": None, "guide_token": 0}
+_seen = {"signature": None, "guide_token": 0, "status_token": 0, "shown_status": 0}
+_LOG = Path(__file__).resolve().parents[2] / ".temporal" / "shelf.log"
 
 
 def show_card() -> None:
@@ -44,23 +49,16 @@ def show_card() -> None:
         return
     request = decide(help_file.sections, parm_name, parm_label, error_text)
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
-    card, note = _store(card_id, request)
+    _keep_once(card_id, request, force=True)
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
+    _attach_service(scene, card_id)
     from houdini_wizard.values import attach_guides
 
     attach_guides(scene, help_file.sections, allow_model=True)
-    extra = note
-    if request.get("needs_model") and card.get("kind") == "quote":
-        try:
-            from houdini_wizard.context import build_study
-
-            study = build_study(help_file.sections, scene, card.get("title") or "")
-            extra = f"{explain_context(error_text, study['focus_heading'], study['wires_in'])} {note}".strip()
-        except Exception:
-            extra = note
-    focus = card.get("title") or parm_label or ""
+    focus = _focus_for(card_id, request, parm_label)
     _seen["signature"] = _signature(node, parm_name, parm_label, error_text)
-    show_panel(help_file.sections, scene, focus, extra, refresh=lambda: _poll(hou))
+    _seen["shown_status"] = _seen.get("status_token", 0)
+    show_panel(help_file.sections, scene, focus, "", refresh=lambda: _poll(hou))
 
 
 def _selection(hou, announce: bool = True):
@@ -105,7 +103,8 @@ def _poll(hou):
         if signature == _seen.get("browse_hold"):
             return None
         _seen["browsing"] = False
-    if signature == _seen["signature"]:
+    status_only = signature == _seen["signature"] and _seen.get("shown_status") != _seen.get("status_token")
+    if signature == _seen["signature"] and not status_only:
         return None
     try:
         category = node.type().category().name()
@@ -114,12 +113,18 @@ def _poll(hou):
         help_file = installed_help(category, internal, hfs)
     except Exception:
         return None
+    request = decide(help_file.sections, parm_name, parm_label, error_text)
+    card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
+    _keep_once(card_id, request)
     _seen["signature"] = signature
+    _seen["shown_status"] = _seen.get("status_token", 0)
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
-    from houdini_wizard.values import attach_guides
+    _attach_service(scene, card_id)
+    if not status_only:
+        from houdini_wizard.values import attach_guides
 
-    attach_guides(scene, help_file.sections, allow_model=True)
-    focus = parm_label or ""
+        attach_guides(scene, help_file.sections, allow_model=True)
+    focus = _focus_for(card_id, request, parm_label)
     return help_file.sections, scene, focus, ""
 
 
@@ -319,32 +324,168 @@ def _selected_parm(hou, node):
     return None
 
 
-def _store(card_id: str, request: dict) -> tuple[dict, str]:
+def _keep_once(card_id: str, request: dict, force: bool = False) -> None:
+    """Remember this card in Temporal without freezing Houdini's window.
+
+    Selecting a node, or clicking the shelf, starts one workflow for that
+    node, parameter, and cook error. A second look at the same card reopens
+    the stored result. The model call is not started again.
+    """
+    state = _seen.get("kept_state")
+    if _seen.get("started_id") == card_id and state in {"keeping", "stored", "reopened"}:
+        return
+    if _seen.get("started_id") == card_id and not force:
+        return
+    _seen["started_id"] = card_id
+    _seen["kept_id"] = card_id
+    _seen["kept_state"] = "keeping"
+    _seen["kept_card"] = None
+    _seen["kept_note"] = (
+        "Saving this card. If Houdini closes, open the tool on this node and it comes back."
+    )
+    _seen["service"] = _service(
+        "working",
+        "Saving this card. If Houdini closes, open the tool on this node and it comes back.",
+    )
+    _seen["status_token"] = _seen.get("status_token", 0) + 1
+    _log(f"start {card_id}")
+    threading.Thread(
+        target=_keep_worker,
+        args=(card_id, request),
+        name="houdini-wizard-temporal",
+        daemon=True,
+    ).start()
+
+
+def _keep_worker(card_id: str, request: dict) -> None:
     try:
-        card = _run_async(_open(card_id, request))
+        card = _ask_temporal(card_id, request)
     except Exception as exc:
-        note = f"Temporal did not keep this card ({exc}). The quote is still from the help file."
-        heading = request.get("known_heading") or ""
+        _log(f"fail {card_id} {exc}")
+        service = _failure_service(exc)
+        note = service["detail"]
         if request.get("needs_model"):
             try:
                 heading = pick_heading(request["headings"], request["error_text"])
-                note = "Temporal did not keep this card. Gemma still chose the heading."
+                card = finish(request, heading)
             except Exception as model_exc:
-                heading = "none"
-                note = f"Temporal and Gemma did not run ({model_exc}). Open a heading from the file."
-        return finish(request, heading), note
+                card = finish(request, "none")
+                service = _service(
+                    "error",
+                    "This card could not be saved, and the heading was not chosen. Open one from the file.",
+                )
+                note = service["detail"]
+                _log(f"fail {card_id} model {model_exc}")
+        else:
+            card = finish(request)
+        _publish(card_id, card, note, service["state"], service)
+        return
     kept_id = card.get("card_id") or card_id
     if card.get("kept") == "reopened":
-        note = (
-            f"Reopened the stored card {kept_id}. The model was not asked again. "
-            "The same history is at http://localhost:8233"
+        service = _service(
+            "restored",
+            "Brought this card back from before Houdini closed. The model was not asked again.",
         )
+        state = "reopened"
     else:
-        note = (
-            f"Stored this card as {kept_id}. Quit Houdini, open it again, select this node, "
-            "and click the shelf. History is at http://localhost:8233"
+        service = _service(
+            "online",
+            "This card comes back if Houdini closes. A timed-out model call stays on this run and is tried again.",
         )
-    return card, note
+        state = "stored"
+    _log(f"{state} {kept_id}")
+    _publish(card_id, card, service["detail"], state, service)
+
+
+def _client_python() -> str:
+    recorded = _LOG.parent / "client-python.txt"
+    if recorded.is_file():
+        path = recorded.read_text(encoding="utf-8").strip()
+        if path:
+            return path
+    return "python"
+
+
+def _ask_temporal(card_id: str, request: dict) -> dict:
+    """Ask the system Python to store the card. Houdini's loop cannot."""
+    completed = subprocess.run(
+        [_client_python(), "-m", "houdini_wizard.bridge", card_id],
+        input=json.dumps(request),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        raise RuntimeError(detail or f"the card process exited {completed.returncode}")
+    return json.loads(completed.stdout)
+
+
+def _publish(card_id: str, card: dict, note: str, state: str, service: dict | None = None) -> None:
+    if _seen.get("started_id") != card_id:
+        return
+    _seen["kept_id"] = card_id
+    _seen["kept_card"] = card
+    _seen["kept_note"] = note
+    _seen["kept_state"] = state
+    if service is not None:
+        _seen["service"] = service
+    _seen["status_token"] = _seen.get("status_token", 0) + 1
+
+
+def _service(state: str, detail: str) -> dict:
+    titles = {
+        "working": "Saving",
+        "online": "Saved",
+        "restored": "Restored",
+        "offline": "Not saved",
+        "error": "Not saved",
+    }
+    return {"state": state, "title": titles.get(state, "Saving"), "detail": detail}
+
+
+def _failure_service(exc: Exception) -> dict:
+    text = str(exc).lower()
+    offline = any(
+        piece in text
+        for piece in ("connection refused", "10061", "timed out", "failed to connect", "unavailable", "7233")
+    )
+    if offline:
+        return _service(
+            "offline",
+            "The recovery service is not running. This card stays on screen only, and it will not come back if Houdini closes.",
+        )
+    return _service(
+        "error",
+        "This card could not be saved. It stays on screen only, and it will not come back if Houdini closes.",
+    )
+
+
+def _attach_service(scene: dict, card_id: str) -> None:
+    if _seen.get("kept_id") == card_id and isinstance(_seen.get("service"), dict):
+        scene["service"] = dict(_seen["service"])
+
+
+def _focus_for(card_id: str, request: dict, parm_label: str) -> str:
+    card = _seen.get("kept_card") if _seen.get("kept_id") == card_id else None
+    if isinstance(card, dict) and card.get("title"):
+        return card["title"]
+    if request.get("known_heading"):
+        return request["known_heading"]
+    return parm_label or ""
+
+
+def _log(line: str) -> None:
+    try:
+        _LOG.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        with _LOG.open("a", encoding="utf-8") as handle:
+            handle.write(f"{stamp} {line}\n")
+    except Exception:
+        return
 
 
 async def _open(card_id: str, request: dict) -> dict:

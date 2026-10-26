@@ -39,23 +39,30 @@ def _entire(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _checkpoints() -> str:
+def _checkpoints(question: str) -> str:
     result = _entire("checkpoint", "explain", "--session", SESSION)
     text = (result.stdout or result.stderr).strip()
     if result.returncode != 0:
         return text or "Entire could not list the checkpoints for this session."
-    kept: list[str] = []
+    words = {word.lower() for word in question.split() if len(word) > 3}
+    rows: list[tuple[int, str]] = []
+    current_id = ""
     for raw in text.splitlines():
         line = raw.strip()
-        if not line or line.startswith("branch") or line.startswith("session") or line.startswith("checkpoints"):
-            continue
-        if line.startswith("●") and "[Image]" in line:
+        if line.startswith("●"):
             parts = line.split()
-            if len(parts) > 1:
-                kept.append(parts[1])
+            current_id = parts[1] if len(parts) > 1 else ""
             continue
-        kept.append(line)
-    return "\n".join(kept)
+        if not current_id or not line[:1].isdigit():
+            continue
+        score = sum(len(word) for word in words if word in line.lower())
+        rows.append((score, f"{current_id}  {line}"))
+        current_id = ""
+    rows.sort(key=lambda item: item[0], reverse=True)
+    chosen = [line for score, line in rows if score > 0][:2] or [line for _, line in rows[:2]]
+    if not chosen:
+        return "No checkpoint matched that question."
+    return "\n".join(chosen)
 
 
 def _search(question: str) -> str:
@@ -82,10 +89,10 @@ def _search(question: str) -> str:
         if snippet:
             lines.append(f"  {snippet}")
         lines.append("")
-    lines.append("Checkpoints from that build:")
-    lines.append(_checkpoints())
+    lines.append("The checkpoint behind that answer:")
+    lines.append(_checkpoints(question))
     lines.append("")
-    lines.append("Read one checkpoint with: entire checkpoint explain <id>")
+    lines.append("Read it with: entire checkpoint explain <id>")
     return "\n".join(lines).strip()
 
 
@@ -97,7 +104,7 @@ def main() -> None:
         for item in QUESTIONS:
             print(f"  python -m houdini_wizard.why \"{item}\"")
         print()
-        print(_checkpoints())
+        print(_checkpoints("help card shelf gemma temporal window"))
         return
     print(_search(question))
 
