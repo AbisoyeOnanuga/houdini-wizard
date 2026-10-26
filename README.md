@@ -36,18 +36,19 @@ To use another Gemma tag, set `HOUDINI_WIZARD_MODEL` before the worker starts.
 
 ## Temporal
 
-The feature is one durable Workflow, written with the Temporal Python SDK. It is not the multi-process agent harness, and the CLI is not the feature. The CLI only runs a local Temporal Service so that workflow has somewhere to live.
+The feature is one durable Workflow, written with the Temporal Python SDK. A multi-process agent harness is a different kind of tool: the model chooses the next step, and several processes keep a conversation going. This shelf already knows the steps. A heading named by the parameter or the cook error is quoted from the installed help, in process, with no model and no workflow. Gemma runs only when a cook error names no heading, and it may only return one of those headings or `none`.
 
-`CardWorkflow` does two things:
+That single call is the workflow:
 
-- The heading pick is an Activity with three attempts. If Gemma fails, Temporal runs that call again. A heading that was already named never becomes an Activity.
-- The card's id is a Workflow id. The same node and the same cook error reuse that id (`REJECT_DUPLICATE`). The next shelf click returns the stored result and does not call Gemma again. A new cook error is a new id, and a new card.
+- It is one Activity, with three attempts. If Gemma times out, the same run tries again. It does not start a second call that might both succeed.
+- The workflow id is the node, the parameter, and the cook error. Opening that same error while the run is still going waits for it. The model is not asked twice.
+- The help text never enters the workflow. Temporal receives the heading names and the error, and returns one heading. Python quotes the section.
+- The heading is then written to one file in the Houdini user preferences, `houdini_wizard/cards.json`, keeping the newest picks. The finished workflow is removed, so a session of node clicks does not become a session of rows in `.temporal\dev.db`.
+- The service starts when the tool opens, with no console window. It stops when Houdini exits, including when Houdini is ended from outside, so the process does not stay behind.
 
-The shelf starts that server in the background when you open the tool, including after the server was stopped. The history stays in `.temporal\dev.db`. There is no terminal step. On a new computer the install command below places `temporal.exe` the first time; opening the tool is what starts it.
+The monitor at [http://localhost:8233](http://localhost:8233) shows a run while that heading pick is in progress. A normal node, and a finished pick, do not leave a row. The help window says **From this install** for a quote, and **Saving**, **Saved**, or **Restored** for a heading the model had to choose.
 
-Open [http://localhost:8233](http://localhost:8233) after the tool is open. That page is the monitor: one run per card opened with the shelf, a retry, and a second open that did not ask the model again. Selecting another node updates the help and does not add a run. The help window shows Saved, Restored, or Not saved.
-
-Temporal's docs describe `temporal server start-dev` as the local development server, a single program with a database file, not a production cluster and not a window the artist keeps open. A production service would be [Temporal Cloud or a self-hosted cluster](https://docs.temporal.io/production-deployment). This tool starts the local server so Houdini can recover a card. The same command, if you ever want to start it yourself, is:
+Temporal's docs describe `temporal server start-dev` as the local development server, a single program with a database file, not a production cluster and not a window the artist keeps open. A production service would be [Temporal Cloud or a self-hosted cluster](https://docs.temporal.io/production-deployment). This tool uses the local server because the artist is on one computer, and the durable part is the in-flight model call, not a ledger of every click. The same command, if you ever want to start it yourself, is:
 
 ```powershell
 temporal server start-dev --db-filename D:\Documents\vscode\houdini-wizard\.temporal\dev.db
@@ -69,7 +70,7 @@ Restart Houdini. The shelf tab is **Houdini Wizard**. The tool is **Section card
 4. A cook error that does not name a heading asks Gemma, inside the Temporal workflow.
 5. If nothing matches, the dialog lists the file's headings. You open one.
 
-Clicking other nodes updates the help and does not open a console. Click **Section card** on the node you are working on. The banner changes from Saving to Saved. Quit Houdini after that, open the same node, and click the shelf again. The banner says Restored, and the monitor still has one row for that card.
+Clicking other nodes updates the help. The banner says **From this install**, and the monitor does not gain a row. A cook error that does not name a heading is the one that shows Saving, then Saved. Quit Houdini and the service process stops. Open the tool on that same error again. The banner says Restored, the model is not asked again, and the heading came from the one local file.
 
 Short value lines that needed the model are remembered in the Houdini user preferences. They are not a separate workflow.
 

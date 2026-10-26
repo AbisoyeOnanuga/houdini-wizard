@@ -1,4 +1,9 @@
-"""One Temporal Python workflow. It retries the heading pick and restores the card."""
+"""One Temporal Python workflow. It retries the heading pick and then lets go.
+
+Quotes never enter this workflow. The activity receives the heading names and
+the cook error, not the help text. After the heading is stored on disk, the
+finished run is deleted so the local database is not a row per node click.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ async def pick_heading_activity(request: dict) -> str:
 @workflow.defn
 class CardWorkflow:
     @workflow.run
-    async def run(self, request: dict) -> dict:
+    async def run(self, request: dict) -> str:
         heading = request.get("known_heading") or ""
         if not heading and request.get("needs_model"):
             heading = await workflow.execute_activity(
@@ -37,7 +42,7 @@ class CardWorkflow:
                 start_to_close_timeout=timedelta(seconds=90),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-        return card_from_heading(request.get("sections") or [], heading or None)
+        return heading or "none"
 
 
 def workflow_id(node_path: str, parm_name: str, error_text: str) -> str:
@@ -46,15 +51,21 @@ def workflow_id(node_path: str, parm_name: str, error_text: str) -> str:
 
 
 async def open_card(client: Client, card_id: str, request: dict) -> dict:
-    """Run the card, or return the one already stored under this id.
+    """Run the heading pick, or wait for the pick already running under this id.
 
-    The workflow result stays as the quote. ``kept`` is added here so the
-    shelf can say whether this click stored a new card or reopened one.
+    The help text stays in this process. Temporal stores the heading name.
+    ``kept`` says whether this call started the run or found it still going.
     """
+    slim = {
+        "headings": list(request.get("headings") or []),
+        "error_text": request.get("error_text") or "",
+        "known_heading": request.get("known_heading") or "",
+        "needs_model": bool(request.get("needs_model")),
+    }
     try:
-        card = await client.execute_workflow(
+        heading = await client.execute_workflow(
             CardWorkflow.run,
-            request,
+            slim,
             id=card_id,
             task_queue=TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
@@ -62,12 +73,28 @@ async def open_card(client: Client, card_id: str, request: dict) -> dict:
         kept = "stored"
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(card_id)
-        card = await handle.result()
+        heading = await handle.result()
         kept = "reopened"
-    card = dict(card)
+    card = card_from_heading(request.get("sections") or [], heading)
     card["kept"] = kept
     card["card_id"] = card_id
+    card["heading"] = heading or "none"
     return card
+
+
+async def release_card(client: Client, card_id: str) -> None:
+    """Remove a finished run. The heading already lives in the local file."""
+    from temporalio.api.common.v1 import WorkflowExecution
+    from temporalio.api.workflowservice.v1 import DeleteWorkflowExecutionRequest
+
+    handle = client.get_workflow_handle(card_id)
+    description = await handle.describe()
+    await client.workflow_service.delete_workflow_execution(
+        DeleteWorkflowExecutionRequest(
+            namespace=client.namespace,
+            workflow_execution=WorkflowExecution(workflow_id=card_id, run_id=description.run_id),
+        )
+    )
 
 
 async def connect(address: str | None = None) -> Client:

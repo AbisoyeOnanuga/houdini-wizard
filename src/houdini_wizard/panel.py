@@ -736,9 +736,14 @@ def _ends_box(widgets, title: str, rows: list[dict], empty: str):
 
 
 def _service_banner(widgets, service: dict):
+    try:
+        from PySide6 import QtCore
+    except ImportError:
+        from PySide2 import QtCore
     frame = widgets.QFrame()
     frame.setObjectName("service")
     frame.setProperty("state", service.get("state") or "working")
+    frame.setAttribute(QtCore.Qt.WA_StyledBackground, True)
     column = widgets.QVBoxLayout(frame)
     column.setContentsMargins(10, 8, 10, 8)
     column.setSpacing(2)
@@ -992,6 +997,7 @@ def _style(theme: str, zoom: float) -> str:
         work_bg, work_fg = "#e6e4f2", "#34315f"
         ok_bg, ok_fg = "#dcecde", "#1d5c32"
         back_bg, back_fg = "#d9e6f5", "#1a4578"
+        here_bg, here_fg = "#efe6d8", "#5c4a32"
         off_bg, off_fg = "#f3e6cf", "#7a5410"
         bad_bg, bad_fg = "#f6dcd6", "#8a2e24"
     else:
@@ -1011,6 +1017,7 @@ def _style(theme: str, zoom: float) -> str:
         work_bg, work_fg = "#2a2838", "#e4def8"
         ok_bg, ok_fg = "#1c3326", "#c8efd4"
         back_bg, back_fg = "#1c2c40", "#d4e6fa"
+        here_bg, here_fg = "#2c2824", "#e7dcc8"
         off_bg, off_fg = "#3a3224", "#f3e0b8"
         bad_bg, bad_fg = "#3c2222", "#f6d0c8"
     body = _px(zoom, 14)
@@ -1049,6 +1056,8 @@ QFrame#service[state="online"] {{ background: {ok_bg}; }}
 QFrame#service[state="online"] QLabel {{ color: {ok_fg}; }}
 QFrame#service[state="restored"] {{ background: {back_bg}; }}
 QFrame#service[state="restored"] QLabel {{ color: {back_fg}; }}
+QFrame#service[state="local"] {{ background: {here_bg}; }}
+QFrame#service[state="local"] QLabel {{ color: {here_fg}; }}
 QFrame#service[state="offline"] {{ background: {off_bg}; }}
 QFrame#service[state="offline"] QLabel {{ color: {off_fg}; }}
 QFrame#service[state="error"] {{ background: {bad_bg}; }}

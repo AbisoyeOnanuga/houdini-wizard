@@ -13,8 +13,15 @@ from temporalio.worker import Worker
 
 from houdini_wizard.context import build_study, _value_guide
 from houdini_wizard.help_file import load_path, load_zip_member
-from houdini_wizard.pick import decide
-from houdini_wizard.workflow import TASK_QUEUE, CardWorkflow, open_card, pick_heading_activity, workflow_id
+from houdini_wizard.memory import uses_workflow
+from houdini_wizard.pick import decide, finish
+from houdini_wizard.workflow import (
+    TASK_QUEUE,
+    CardWorkflow,
+    open_card,
+    pick_heading_activity,
+    workflow_id,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "fixtures" / "box.txt"
@@ -269,6 +276,14 @@ async def check_restore() -> None:
 
     pick_mod.pick_heading = fake
     try:
+        quoted = decide(loaded.sections, "scale", "Uniform Scale", "")
+        if uses_workflow(quoted):
+            fail("a named heading started a workflow")
+        card = finish(quoted)
+        if card["title"] != "Uniform Scale" or calls["n"] != 0:
+            fail("a named heading did not stay a local quote")
+        print("Quote stays on this computer: Uniform Scale")
+
         async with await WorkflowEnvironment.start_time_skipping() as env:
             worker = Worker(
                 env.client,
@@ -277,19 +292,9 @@ async def check_restore() -> None:
                 activities=[pick_heading_activity],
             )
             async with worker:
-                quoted = decide(loaded.sections, "scale", "Uniform Scale", "")
-                card_id = workflow_id("/obj/geo1/box1", "scale", "")
-                first = await open_card(env.client, card_id, quoted)
-                second = await open_card(env.client, card_id, quoted)
-                if first["title"] != "Uniform Scale" or second["title"] != first["title"]:
-                    fail("the same workflow id did not restore the quote")
-                if first.get("kept") != "stored" or second.get("kept") != "reopened":
-                    fail("the second click did not report the stored card")
-                if calls["n"] != 0:
-                    fail("Gemma ran for a heading that was already named")
-                print(f"Restored card: {second['title']}")
-
                 unnamed = decide(loaded.sections, "", "", UNNAMED)
+                if not uses_workflow(unnamed):
+                    fail("an unnamed cook error skipped the workflow")
                 other_id = workflow_id("/obj/geo1/box1", "", UNNAMED)
                 listed = await open_card(env.client, other_id, unnamed)
                 again = await open_card(env.client, other_id, unnamed)
@@ -297,11 +302,45 @@ async def check_restore() -> None:
                     fail("the unnamed error did not restore the heading list")
                 if listed.get("kept") != "stored" or again.get("kept") != "reopened":
                     fail("the unnamed error did not report the reopened card")
-                if calls["n"] != 1:
+                if listed.get("heading") != "none" or calls["n"] != 1:
                     fail(f"Gemma ran {calls['n']} times for one card")
-                print("Restored heading list from the same workflow id. Gemma ran once.")
+                print("One heading pick, reopened from the same run. Gemma ran once.")
     finally:
         pick_mod.pick_heading = original
+
+
+def check_memory() -> None:
+    from tempfile import TemporaryDirectory
+
+    from houdini_wizard.memory import KEEP, recall, remember
+
+    previous = os.environ.get("HOUDINI_USER_PREF_DIR")
+    with TemporaryDirectory() as tmp:
+        os.environ["HOUDINI_USER_PREF_DIR"] = tmp
+        if not remember("first", "Size") or recall("first") != "Size":
+            fail("heading was not kept locally")
+        for index in range(KEEP):
+            remember(f"id-{index}", "none")
+        if recall("first") is not None:
+            fail("the local file kept every heading")
+        if recall(f"id-{KEEP - 1}") != "none":
+            fail("the newest heading was dropped")
+    if previous is None:
+        os.environ.pop("HOUDINI_USER_PREF_DIR", None)
+    else:
+        os.environ["HOUDINI_USER_PREF_DIR"] = previous
+    print("Local file: newest headings only, one file.")
+    print()
+
+
+def check_release_command() -> None:
+    from houdini_wizard.service import release_command
+
+    command = release_command("wizard-example")
+    if "delete" not in command or command[-2:] != ["--workflow-id", "wizard-example"]:
+        fail(f"finished runs are not deleted with the CLI: {command}")
+    print("Finished run: removed with the Temporal CLI, not kept as a row.")
+    print()
 
 
 def check_ui_thread() -> None:
@@ -327,6 +366,8 @@ def main() -> None:
     os.chdir(ROOT)
     check_file(FIXTURE)
     check_install()
+    check_memory()
+    check_release_command()
     check_ui_thread()
     asyncio.run(check_restore())
     print("Fixture passed.")
