@@ -29,3 +29,5 @@ if ($LASTEXITCODE -ne 0) { throw "Temporal could not be prepared." }
 Write-Host ""
 Write-Host "Installed. Restart Houdini. The shelf tab is Houdini Wizard, and the tool is Section card."
 Write-Host "Opening the tool starts recovery in the background. Session log and Developer monitor are buttons on the panel."
+Write-Host "Quotes work without a model. For heading picks, install Ollama, then run: ollama pull gemma3:4b"
+Write-Host "The steps are in README.md under Ollama and Gemma."

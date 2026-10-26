@@ -17,8 +17,16 @@ _PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Houdini wizard · Your cards</title>
+<script>
+(function () {
+  var theme = "dark";
+  try { theme = localStorage.getItem("houdini-wizard-session-theme") || "dark"; } catch (err) {}
+  if (theme !== "light") theme = "dark";
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
 <style>
-  :root {
+  :root, html[data-theme="dark"] {
     --ink: #f3eadc;
     --muted: #b7aa96;
     --bg: #14110e;
@@ -31,6 +39,22 @@ _PAGE = """<!DOCTYPE html>
     --off: #f3e0b8; --off-bg: #3a3224;
     --bad: #f6d0c8; --bad-bg: #3c2222;
     --here: #e7dcc8; --here-bg: #2c2824;
+    --glow: rgba(224,164,90,0.16);
+  }
+  html[data-theme="light"] {
+    --ink: #2c261f;
+    --muted: #6d6256;
+    --bg: #f6f1e8;
+    --panel: #fffdf8;
+    --line: #e4d9cb;
+    --amber: #8a5a22;
+    --work: #34315f; --work-bg: #e6e4f2;
+    --ok: #1d5c32; --ok-bg: #dcecde;
+    --back: #1a4578; --back-bg: #d9e6f5;
+    --off: #7a5410; --off-bg: #f3e6cf;
+    --bad: #8a2e24; --bad-bg: #f6dcd6;
+    --here: #5c4a32; --here-bg: #efe6d8;
+    --glow: rgba(138,90,34,0.12);
   }
   * { box-sizing: border-box; }
   body {
@@ -38,7 +62,7 @@ _PAGE = """<!DOCTYPE html>
     min-height: 100vh;
     color: var(--ink);
     background:
-      radial-gradient(1200px 500px at 10% -10%, rgba(224,164,90,0.16), transparent 55%),
+      radial-gradient(1200px 500px at 10% -10%, var(--glow), transparent 55%),
       var(--bg);
     font-family: "Palatino Linotype", Palatino, "Iowan Old Style", Georgia, serif;
   }
@@ -46,13 +70,27 @@ _PAGE = """<!DOCTYPE html>
   header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; }
   h1 { font-weight: 500; font-size: 42px; letter-spacing: -0.03em; margin: 0; }
   .lede { color: var(--muted); margin: 8px 0 0; font-size: 18px; max-width: 36rem; }
+  .tools { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+  .theme {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .theme:hover { border-color: var(--amber); color: var(--amber); }
   .dev {
     color: var(--amber);
     font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 12px;
     letter-spacing: 0.04em;
     text-decoration: none;
-    border-bottom: 1px solid rgba(224,164,90,0.45);
+    border-bottom: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
     padding-bottom: 2px;
     white-space: nowrap;
   }
@@ -109,6 +147,44 @@ _PAGE = """<!DOCTYPE html>
   .local { color: var(--here); background: var(--here-bg); }
   h2 { font-size: 22px; font-weight: 600; margin: 10px 0 0; letter-spacing: -0.02em; }
   .path, p { color: var(--muted); margin: 4px 0 0; font-size: 16px; }
+  dl {
+    display: grid;
+    grid-template-columns: 108px 1fr;
+    gap: 6px 14px;
+    margin: 14px 0 0;
+  }
+  dt {
+    color: var(--muted);
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-top: 3px;
+  }
+  dd { margin: 0; color: var(--ink); font-size: 16px; }
+  blockquote {
+    margin: 14px 0 0;
+    padding: 2px 0 2px 12px;
+    border-left: 2px solid var(--amber);
+    color: var(--ink);
+    font-size: 17px;
+  }
+  .cook {
+    margin-top: 12px;
+    background: var(--bad-bg);
+    color: var(--bad);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+  .file { color: var(--muted); font-size: 14px; }
+  .mark {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-right: 6px;
+  }
   .empty {
     margin-top: 48px;
     color: var(--muted);
@@ -129,9 +205,12 @@ _PAGE = """<!DOCTYPE html>
   <header>
     <div>
       <h1>Your cards</h1>
-      <p class="lede">Each node you open with the tool, in the order you opened it.</p>
+      <p class="lede">Each node you open, one card. The parameter, the heading, the quote, and any error, warning, or message are on that card.</p>
     </div>
-    <a class="dev" href="http://localhost:8233">Developer monitor</a>
+    <div class="tools">
+      <button type="button" id="theme" class="theme">Light</button>
+      <a class="dev" href="http://localhost:8233">Developer monitor</a>
+    </div>
   </header>
   <p class="empty" id="empty">Open the tool on a node. Saved cards show up here.</p>
   <ol id="flow"></ol>
@@ -139,6 +218,19 @@ _PAGE = """<!DOCTYPE html>
 <script>
 const flow = document.getElementById("flow");
 const empty = document.getElementById("empty");
+const themeButton = document.getElementById("theme");
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const light = theme === "light";
+  themeButton.textContent = light ? "Dark" : "Light";
+  themeButton.setAttribute("aria-pressed", light ? "true" : "false");
+  try { localStorage.setItem("houdini-wizard-session-theme", theme); } catch (err) {}
+}
+applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
+themeButton.addEventListener("click", function () {
+  const current = document.documentElement.getAttribute("data-theme");
+  applyTheme(current === "light" ? "dark" : "light");
+});
 function clock(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -149,6 +241,50 @@ function pill(className, text) {
   span.className = "pill " + className;
   span.textContent = text;
   return span;
+}
+function duration(ms) {
+  if (ms >= 1000) {
+    const seconds = ms / 1000;
+    return (Math.round(seconds * 10) / 10).toString().replace(/\\.0$/, "") + " s";
+  }
+  return ms + " ms";
+}
+function modelFacts(list, usage) {
+  if (!usage || typeof usage !== "object") return;
+  if (usage.pending) {
+    fact(list, "Model", usage.reason || "Gemma is choosing a heading.");
+    return;
+  }
+  if (usage.used === false) {
+    fact(list, "Model", usage.reason || "Gemma was not asked.");
+    if (typeof usage.save_ms === "number") fact(list, "Round trip", duration(usage.save_ms));
+    return;
+  }
+  if (usage.used !== true) return;
+  const who = [usage.model, usage.task].filter(Boolean).join(" · ");
+  fact(list, "Model", usage.reason || who || "Gemma");
+  if (usage.reason && usage.model) fact(list, "Ran", usage.model);
+  if (usage.skill) fact(list, "Skill", usage.skill);
+  if (typeof usage.prompt_tokens === "number" || typeof usage.answer_tokens === "number") {
+    const parts = [];
+    if (typeof usage.prompt_tokens === "number") parts.push(usage.prompt_tokens + " prompt");
+    if (typeof usage.answer_tokens === "number") parts.push(usage.answer_tokens + " answer");
+    fact(list, "Tokens", parts.join(", "));
+  } else {
+    fact(list, "Tokens", "Ollama did not report token counts.");
+  }
+  if (typeof usage.total_ms === "number") fact(list, "Model time", duration(usage.total_ms));
+  if (usage.load_ms) fact(list, "Model load", duration(usage.load_ms));
+  if (typeof usage.attempt === "number") fact(list, "Attempt", String(usage.attempt));
+  if (typeof usage.save_ms === "number") fact(list, "Round trip", duration(usage.save_ms));
+}
+function fact(list, label, text) {
+  if (!text) return;
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const value = document.createElement("dd");
+  value.textContent = text;
+  list.append(term, value);
 }
 function entry(item) {
   const li = document.createElement("li");
@@ -166,14 +302,46 @@ function entry(item) {
   row.appendChild(pill(item.state || "working", item.title || ""));
   if (item.source) row.appendChild(pill("local", item.source));
   const name = document.createElement("h2");
-  const label = item.node_label || "This session";
-  name.textContent = item.heading ? label + " · " + item.heading : label;
+  name.textContent = item.node_label || "This session";
   const path = document.createElement("div");
   path.className = "path";
   path.textContent = item.node || "";
-  const detail = document.createElement("p");
-  detail.textContent = item.detail || "";
-  card.append(row, name, path, detail);
+  card.append(row, name, path);
+  const facts = document.createElement("dl");
+  fact(facts, "Parameter", item.parameter || "");
+  fact(facts, "Heading", item.heading || "");
+  fact(facts, "Situation", item.situation || "");
+  modelFacts(facts, item.usage || {});
+  if (facts.childNodes.length) card.appendChild(facts);
+  if (item.quote) {
+    const quote = document.createElement("blockquote");
+    quote.textContent = item.quote;
+    card.appendChild(quote);
+  }
+  if (item.error) {
+    const cook = document.createElement("p");
+    cook.className = "cook";
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.textContent = item.status_label || "On this node";
+    cook.append(mark, document.createTextNode(item.error));
+    card.appendChild(cook);
+  }
+  const names = Array.isArray(item.headings) ? item.headings.filter(Boolean) : [];
+  if (names.length) {
+    const file = document.createElement("p");
+    file.className = "file";
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.textContent = "In this file";
+    file.append(mark, document.createTextNode(names.join(", ")));
+    card.appendChild(file);
+  }
+  if (item.detail) {
+    const detail = document.createElement("p");
+    detail.textContent = item.detail;
+    card.appendChild(detail);
+  }
   li.append(time, rail, card);
   return li;
 }

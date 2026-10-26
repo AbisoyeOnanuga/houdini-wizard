@@ -8,16 +8,18 @@ import json
 import os
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from houdini_wizard.help_file import installed_help
 from houdini_wizard.panel import show_panel
 from houdini_wizard.memory import recall, uses_workflow
-from houdini_wizard.pick import decide, finish, pick_heading
+from houdini_wizard.pick import DEFAULT_MODEL, decide, finish, last_usage, pick_heading
+from houdini_wizard.usage import pending_pick, skipped
 from houdini_wizard.service import ensure_running, history_exists, worker_python
 from houdini_wizard.userlog import record
-from houdini_wizard.workflow import connect, open_card, workflow_id
+from houdini_wizard.workflow import _log_card, connect, open_card, plain_reason, workflow_id
 
 _seen = {"signature": None, "guide_token": 0, "status_token": 0, "shown_status": 0}
 _LOG = Path(__file__).resolve().parents[2] / ".temporal" / "shelf.log"
@@ -43,7 +45,7 @@ def show_card() -> None:
         show_library(hfs, refresh=lambda: _poll(hou))
         return
     _seen["browsing"] = False
-    node, parm_name, parm_label, error_text = selected
+    node, parm_name, parm_label, error_text, status_label = selected
     try:
         category = node.type().category().name()
         internal = node.type().nameComponents()[2]
@@ -57,6 +59,7 @@ def show_card() -> None:
         )
         return
     request = _note_node(decide(help_file.sections, parm_name, parm_label, error_text), node, parm_label)
+    request["status_label"] = status_label
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     _present(card_id, request)
     scene = _scene(node, error_text, hfs, help_file.includes, parm_label)
@@ -112,12 +115,41 @@ def _selection(hou, announce: bool = True):
     parm_label = ""
     if parm is not None:
         parm_label = parm.description() or parm.parmTemplate().label()
-    errors = node.errors()
-    if isinstance(errors, (list, tuple)):
-        error_text = "\n".join(str(item) for item in errors if item)
+    error_text, status_label = _node_report(node)
+    return node, parm_name, parm_label, error_text, status_label
+
+
+def _node_report(node) -> tuple[str, str]:
+    """What the node is showing in the network editor: errors, warnings, and messages."""
+    lines: list[str] = []
+    labels: list[str] = []
+    for label, method_name in (("Error", "errors"), ("Warning", "warnings"), ("Message", "messages")):
+        method = getattr(node, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            raw = method()
+        except Exception:
+            continue
+        if isinstance(raw, (list, tuple)):
+            texts = [str(item).strip() for item in raw if str(item).strip()]
+        elif str(raw or "").strip():
+            texts = [str(raw).strip()]
+        else:
+            texts = []
+        if not texts:
+            continue
+        labels.append(label)
+        lines.extend(f"{label}: {text}" for text in texts)
+    if not labels:
+        return "", ""
+    if len(labels) == 1:
+        brief = labels[0]
+    elif len(labels) == 2:
+        brief = f"{labels[0]} and {labels[1]}"
     else:
-        error_text = errors or ""
-    return node, parm_name, parm_label, error_text
+        brief = f"{', '.join(labels[:-1])}, and {labels[-1]}"
+    return "\n".join(lines), brief
 
 
 def hold_for_browse(hou) -> None:
@@ -126,7 +158,7 @@ def hold_for_browse(hou) -> None:
     if selected is None:
         _seen["browse_hold"] = None
     else:
-        node, parm_name, parm_label, error_text = selected
+        node, parm_name, parm_label, error_text, status_label = selected
         _seen["browse_hold"] = _signature(node, parm_name, parm_label, error_text)
     _seen["browsing"] = True
     _seen["signature"] = ("library",)
@@ -136,7 +168,7 @@ def _poll(hou):
     selected = _selection(hou, announce=False)
     if selected is None:
         return None
-    node, parm_name, parm_label, error_text = selected
+    node, parm_name, parm_label, error_text, status_label = selected
     signature = _signature(node, parm_name, parm_label, error_text)
     if _seen.get("browsing"):
         if signature == _seen.get("browse_hold"):
@@ -153,6 +185,7 @@ def _poll(hou):
     except Exception:
         return None
     request = _note_node(decide(help_file.sections, parm_name, parm_label, error_text), node, parm_label)
+    request["status_label"] = status_label
     card_id = workflow_id(node.path(), parm_name or parm_label, error_text)
     if not status_only:
         _present(card_id, request)
@@ -418,7 +451,7 @@ def _keep_once(card_id: str, request: dict, model: bool) -> None:
     saving = _service("working", detail)
     _mark(card_id, saving)
     _log(f"start {card_id}")
-    _record(saving, request, model)
+    _record(saving, request, model, _opening_usage(model, request))
     threading.Thread(
         target=_keep_worker,
         args=(card_id, request, model),
@@ -428,26 +461,31 @@ def _keep_once(card_id: str, request: dict, model: bool) -> None:
 
 
 def _keep_worker(card_id: str, request: dict, model: bool) -> None:
+    started = time.perf_counter()
     try:
         ensure_running()
         card = _ask_temporal(card_id, request)
     except Exception as exc:
+        elapsed = _elapsed(started)
         _log(f"fail {card_id} {exc}")
         remembered = recall(card_id)
         if remembered:
             card = finish(request, remembered)
             service = _service("restored", _restored_detail(model))
             _publish(card_id, card, service["detail"], "reopened", service)
-            _record(service, _with_heading(request, card), model)
+            _record(service, _with_heading(request, card), model, _settled_usage(request, model, card, elapsed))
             return
         service = _failure_service(exc)
         note = service["detail"]
+        usage = None
         if model:
             try:
                 heading = pick_heading(request["headings"], request["error_text"])
                 card = finish(request, heading)
+                usage = last_usage() or skipped("pick a heading", "Gemma did not answer.")
             except Exception as model_exc:
                 card = finish(request, "none")
+                usage = last_usage() or skipped("pick a heading", "Gemma did not answer.")
                 service = _service(
                     "error",
                     "This heading could not be saved, and it was not chosen. Open one from the file.",
@@ -457,8 +495,9 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
         else:
             card = finish(request)
         _publish(card_id, card, note, service["state"], service)
-        _record(service, _with_heading(request, card), model)
+        _record(service, _with_heading(request, card), model, _settled_usage(request, model, card, elapsed, usage))
         return
+    elapsed = _elapsed(started)
     kept_id = card.get("card_id") or card_id
     if card.get("kept") == "reopened":
         service = _service("restored", _restored_detail(model))
@@ -468,18 +507,59 @@ def _keep_worker(card_id: str, request: dict, model: bool) -> None:
         state = "stored"
     _log(f"{state} {kept_id}")
     _publish(card_id, card, service["detail"], state, service)
-    _record(service, _with_heading(request, card), model)
+    _record(service, _with_heading(request, card), model, _settled_usage(request, model, card, elapsed))
 
 
-def _record(service: dict, request: dict, model: bool) -> None:
+def _elapsed(started: float) -> int:
+    return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def _opening_usage(model: bool, request: dict) -> dict:
+    if model:
+        usage = pending_pick(os.environ.get("HOUDINI_WIZARD_MODEL", DEFAULT_MODEL))
+        usage["reason"] = plain_reason(request, asking=True)
+        return usage
+    return {}
+
+
+def _settled_usage(request: dict, model: bool, card: dict, elapsed: int, fallback: dict | None = None) -> dict:
+    usage = dict(card.get("usage") or fallback or {})
+    if not usage:
+        logged = _log_card(request)
+        if model or logged.get("needs_model"):
+            usage = skipped("pick a heading", "Gemma did not answer.")
+        elif request.get("matched") == "status":
+            usage = skipped("quote the heading", plain_reason(request))
+        elif logged.get("known_heading"):
+            usage = skipped("quote the heading", plain_reason(request))
+        else:
+            usage = skipped("open the node", plain_reason(request))
+    elif not usage.get("reason"):
+        usage["reason"] = plain_reason(request)
+    usage["save_ms"] = elapsed
+    return usage
+
+
+def _record(service: dict, request: dict, model: bool, usage: dict | None = None) -> None:
+    logged = _log_card(request)
+    heading = logged["known_heading"]
+    if heading == "none":
+        heading = ""
     record(
         {
             "state": service.get("state"),
             "title": service.get("title"),
             "detail": service.get("detail"),
-            "node": request.get("node_path") or "",
-            "node_label": request.get("type_label") or "",
-            "heading": request.get("known_heading") or request.get("shown_parm") or "",
+            "node": logged["node_path"],
+            "node_label": logged["type_label"],
+            "heading": heading,
+            "parameter": logged["parm_label"],
+            "situation": logged["situation"],
+            "quote": logged["quote"],
+            "error": logged["error_text"],
+            "status_label": logged.get("status_label") or "",
+            "headings": logged["headings"],
+            "usage": usage or {},
             "source": "" if model else "From this install",
         }
     )

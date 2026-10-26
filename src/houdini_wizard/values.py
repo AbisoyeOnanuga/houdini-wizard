@@ -94,7 +94,7 @@ def attach_guides(scene: dict, sections, allow_model: bool) -> None:
         )
     scene["guides"] = guides
     if pending:
-        _schedule(pending[:12])
+        _schedule(pending[:12], scene.get("path") or "", scene.get("type_label") or "")
 
 
 def _meaning(section, tooltips: dict) -> str:
@@ -122,7 +122,7 @@ def _key(name: str, meaning: str, span: dict) -> tuple:
     )
 
 
-def _schedule(pending: list[dict]) -> None:
+def _schedule(pending: list[dict], node_path: str, type_label: str) -> None:
     if _JOB["running"]:
         return
     _JOB["running"] = True
@@ -130,9 +130,17 @@ def _schedule(pending: list[dict]) -> None:
     def work() -> None:
         written: dict[str, str] = {}
         try:
-            written = _ask(pending)
+            written = _ask(pending, node_path, type_label)
         except Exception:
             written = {}
+            from houdini_wizard.usage import skipped
+
+            _note_model(
+                skipped("write value lines", "Gemma did not answer."),
+                node_path,
+                type_label,
+                {},
+            )
         finally:
             _JOB["running"] = False
         changed = False
@@ -152,7 +160,7 @@ def _schedule(pending: list[dict]) -> None:
     threading.Thread(target=work, name="houdini-wizard-values", daemon=True).start()
 
 
-def _ask(pending: list[dict]) -> dict[str, str]:
+def _ask(pending: list[dict], node_path: str = "", type_label: str = "") -> dict[str, str]:
     payload = {
         "model": os.environ.get("HOUDINI_WIZARD_MODEL", DEFAULT_MODEL),
         "stream": False,
@@ -193,6 +201,9 @@ def _ask(pending: list[dict]) -> dict[str, str]:
     )
     with urllib.request.urlopen(request, timeout=25) as response:
         body = json.loads(response.read().decode("utf-8"))
+    from houdini_wizard.usage import from_ollama
+
+    usage = from_ollama(body, model=payload["model"], skill="houdini-values", task="write value lines")
     content = str(body.get("message", {}).get("content", "")).strip()
     parsed = json.loads(content)
     found: dict[str, str] = {}
@@ -201,7 +212,31 @@ def _ask(pending: list[dict]) -> dict[str, str]:
         text = " ".join(str(item.get("text", "")).split())
         if name and text:
             found[name] = text
+    _note_model(usage, node_path, type_label, found)
     return found
+
+
+def _note_model(usage: dict, node_path: str, type_label: str, written: dict) -> None:
+    """One session line for a value-line model call. It is not a second card."""
+    try:
+        from houdini_wizard.usage import skipped
+        from houdini_wizard.userlog import record
+
+        if not usage:
+            usage = skipped("write value lines", "Gemma did not answer.")
+        record(
+            {
+                "state": "online" if usage.get("used") else "error",
+                "title": "Model",
+                "detail": "Gemma wrote short value lines." if written else "Gemma did not write value lines.",
+                "node": node_path,
+                "node_label": type_label or "Value lines",
+                "headings": list(written)[:24],
+                "usage": usage,
+            }
+        )
+    except Exception:
+        return
 
 
 def _acceptable(text: str, item: dict) -> bool:

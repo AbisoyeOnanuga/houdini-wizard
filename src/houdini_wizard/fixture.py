@@ -311,6 +311,10 @@ async def check_restore() -> None:
                     fail("a normal card was not saved")
                 if first.get("kept") != "stored" or second.get("kept") != "reopened":
                     fail("the same node did not reopen the saved card")
+                if first.get("usage", {}).get("used") is not False:
+                    fail("a quoted card reported a model call")
+                if "cook" in first.get("usage", {}).get("reason", "").lower():
+                    fail("a quoted card talked about a cook error")
                 if calls["n"] != 0:
                     fail("Gemma ran for a heading that was already named")
                 print("Saved card without a cook error: Uniform Scale")
@@ -327,6 +331,8 @@ async def check_restore() -> None:
                     fail("the unnamed error did not report the reopened card")
                 if listed.get("heading") != "none" or calls["n"] != 1:
                     fail(f"Gemma ran {calls['n']} times for one card")
+                if listed.get("usage", {}).get("task") != "pick a heading":
+                    fail("the heading pick did not record the model task")
                 print("One heading pick, reopened from the same run. Gemma ran once.")
     finally:
         pick_mod.pick_heading = original
@@ -383,6 +389,114 @@ def check_userlog() -> None:
         record({"state": "nope", "title": "Saved", "detail": "skip"})
         if len(read_events()) != 1:
             fail("an unknown status was logged")
+        record(
+            {
+                "state": "working",
+                "title": "Saving",
+                "detail": "Saving this card.",
+                "node": "/obj/geo1/blend1",
+                "node_label": "Blend",
+                "source": "From this install",
+            }
+        )
+        record(
+            {
+                "state": "online",
+                "title": "Saved",
+                "detail": "This card is saved.",
+                "node": "/obj/geo1/blend1",
+                "node_label": "Blend",
+                "heading": "Bias",
+                "source": "From this install",
+            }
+        )
+        record(
+            {
+                "state": "working",
+                "title": "Saving",
+                "detail": "Saving this card.",
+                "node": "/obj/geo1/heighttonormal1",
+                "node_label": "Height to Normal",
+            }
+        )
+        rows = read_events()
+        titles = [row["title"] for row in rows]
+        if titles != ["Saved", "Saved", "Saving"]:
+            fail("Saving and Saved stayed as two lines for one node")
+        record(
+            {
+                "state": "online",
+                "title": "Saved",
+                "detail": "This card is saved.",
+                "node": "/obj/geo1/heighttonormal1",
+                "node_label": "Height to Normal",
+            }
+        )
+        record(
+            {
+                "state": "restored",
+                "title": "Restored",
+                "detail": "Brought this card back.",
+                "node": "/obj/geo1/blend1",
+                "node_label": "Blend",
+            }
+        )
+        rows = read_events()
+        if [row["title"] for row in rows] != ["Saved", "Saved", "Saved", "Restored"]:
+            fail("a later visit did not stay its own line")
+        if rows[1]["node_label"] != "Blend" or rows[3]["node_label"] != "Blend":
+            fail("a later visit replaced the first save")
+        from houdini_wizard.shelf import _record
+
+        from houdini_wizard.usage import from_ollama
+
+        measured = from_ollama(
+            {
+                "model": "gemma3:4b",
+                "prompt_eval_count": 20,
+                "eval_count": 3,
+                "total_duration": 1_500_000_000,
+                "message": {"content": "do not keep this prompt"},
+            },
+            model="gemma3:4b",
+            skill="houdini-section",
+            task="pick a heading",
+        )
+        if measured["prompt_tokens"] != 20 or measured["answer_tokens"] != 3 or measured["total_ms"] != 1500:
+            fail("model timing was not read from Ollama")
+        if "message" in measured or "content" in measured:
+            fail("the model log kept the prompt")
+        _record(
+            {"state": "online", "title": "Saved", "detail": "This card is saved."},
+            {
+                "node_path": "/obj/geo1/font1",
+                "type_label": "Font",
+                "shown_parm": "Text",
+                "known_heading": "Text",
+                "matched": "status",
+                "status_label": "Error",
+                "needs_model": False,
+                "error_text": 'Traceback (most recent call last):\n  File "shelf.py", line 4',
+                "headings": ["Font", "Text", "wizard-secret"],
+                "sections": [
+                    {"heading": "Text", "body": "Text to write.\n\nThe rest of the section stays in Houdini."},
+                ],
+            },
+            False,
+            measured,
+        )
+        rows = read_events()
+        font = rows[-1]
+        if font["parameter"] != "Text" or font["quote"] != "Text to write.":
+            fail("the session card left out the parameter or the quote")
+        if "traceback" in font["error"].lower() or any(name.startswith("wizard-") for name in font["headings"]) or "sections" in font:
+            fail("the session card kept a traceback, a workflow id, or the help body")
+        if "cook" in font["situation"].lower() or "Font" not in font["headings"]:
+            fail("the session card left out the situation or the heading names")
+        if font.get("usage", {}).get("prompt_tokens") != 20 or font["usage"].get("answer_tokens") != 3:
+            fail("the session card left out the token counts")
+        if "do not keep" in str(font):
+            fail("the session card kept the model prompt")
     if previous is None:
         os.environ.pop("HOUDINI_WIZARD_USERLOG", None)
     else:

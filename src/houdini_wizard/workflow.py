@@ -24,10 +24,50 @@ with workflow.unsafe.imports_passed_through():
 
 
 @activity.defn(name="pick_heading_activity")
-async def pick_heading_activity(request: dict) -> str:
-    from houdini_wizard.pick import pick_heading
+async def pick_heading_activity(request: dict) -> dict:
+    from temporalio import activity as temporal_activity
 
-    return pick_heading(request["headings"], request["error_text"])
+    from houdini_wizard.pick import last_usage, pick_heading
+    from houdini_wizard.usage import skipped
+
+    heading = pick_heading(request.get("headings") or [], request.get("error_text") or "")
+    usage = last_usage() or skipped("pick a heading", "The heading pick did not report a model call.")
+    try:
+        usage["attempt"] = int(temporal_activity.info().attempt)
+    except Exception:
+        pass
+    return {"heading": heading, "usage": usage}
+
+
+def _kind(request: dict) -> str:
+    label = str(request.get("status_label") or "").strip()
+    if not label:
+        return "message"
+    return label[:1].lower() + label[1:]
+
+
+def plain_reason(request: dict, *, asking: bool = False, chosen: str = "") -> str:
+    """A sentence for the person looking at the node."""
+    kind = _kind(request)
+    showing = bool(str(request.get("error_text") or "").strip())
+    matched = request.get("matched") or ""
+    if chosen and chosen != "none":
+        return f"Gemma chose {chosen} from this node's help."
+    if chosen == "none":
+        return "Gemma found no heading in this file for what this node is showing."
+    if asking:
+        return (
+            f"This node's {kind} is not a heading in its help. "
+            "Gemma is choosing the closest heading from that file, or none."
+        )
+    if matched == "status" and showing:
+        return f"This node's {kind} names a heading in its help, so the card quotes that section."
+    if matched == "parameter" or request.get("known_heading"):
+        return "The parameter you selected is a heading in this node's help, so the card quotes that section."
+    return (
+        "This node is not showing an error, a warning, or a message. "
+        "The card is the help installed with Houdini."
+    )
 
 
 def _log_card(request: dict) -> dict:
@@ -35,10 +75,11 @@ def _log_card(request: dict) -> dict:
     error_text = request.get("error_text") or ""
     known = request.get("known_heading") or ""
     needs_model = bool(request.get("needs_model")) and not known
+    kind = _kind(request)
     if needs_model:
-        situation = "Cook error needs a heading"
-    elif error_text.strip() and known:
-        situation = "Cook error names a heading"
+        situation = f"This node's {kind} is not a heading in its help."
+    elif request.get("matched") == "status" and error_text.strip() and known:
+        situation = f"This node's {kind} names a heading in its help."
     elif known:
         situation = "Quoted from this install"
     else:
@@ -57,6 +98,8 @@ def _log_card(request: dict) -> dict:
         "known_heading": known,
         "needs_model": needs_model,
         "situation": situation,
+        "status_label": request.get("status_label") or "",
+        "matched": request.get("matched") or "",
         "headings": list(request.get("headings") or []),
         "quote": quote,
     }
@@ -67,13 +110,29 @@ class CardWorkflow:
     @workflow.run
     async def run(self, request: dict) -> dict:
         heading = request.get("known_heading") or ""
+        usage: dict = {
+            "used": False,
+            "task": "quote the heading" if heading else "open the node",
+            "reason": plain_reason(request),
+        }
         if not heading and request.get("needs_model"):
-            heading = await workflow.execute_activity(
+            picked = await workflow.execute_activity(
                 pick_heading_activity,
                 {"headings": request.get("headings") or [], "error_text": request.get("error_text") or ""},
                 start_to_close_timeout=timedelta(seconds=90),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if isinstance(picked, dict):
+                heading = str(picked.get("heading") or "")
+                reported = picked.get("usage")
+                if isinstance(reported, dict):
+                    usage = reported
+            else:
+                heading = str(picked or "")
+            usage = dict(usage)
+            usage["reason"] = plain_reason(request, chosen=heading or "none")
+            usage["task"] = "pick a heading"
+            usage["skill"] = usage.get("skill") or "houdini-section"
         heading = heading or "none"
         return {
             "heading": heading,
@@ -84,6 +143,7 @@ class CardWorkflow:
             "error_text": request.get("error_text") or "",
             "needs_model": bool(request.get("needs_model")),
             "quote": request.get("quote") or "",
+            "usage": usage,
         }
 
 
@@ -118,6 +178,8 @@ async def open_card(client: Client, card_id: str, request: dict) -> dict:
     card["kept"] = kept
     card["card_id"] = card_id
     card["heading"] = heading or "none"
+    if isinstance(result, dict) and isinstance(result.get("usage"), dict):
+        card["usage"] = result["usage"]
     return card
 
 
