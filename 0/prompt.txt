@@ -1,0 +1,1 @@
+it should not be 'why this code exists' but rather 'read more about the agent session behind this code'. then just a final check, about how temporal was used to make this app great, I am confirming that we did not use their agent-harness but rather we used their worker workflow history, right. this will aid in my recording of a short demo for this tool
