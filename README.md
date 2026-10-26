@@ -43,7 +43,11 @@ The feature is one durable Workflow, written with the Temporal Python SDK. It is
 - The heading pick is an Activity with three attempts. If Gemma fails, Temporal runs that call again. A heading that was already named never becomes an Activity.
 - The card's id is a Workflow id. The same node and the same cook error reuse that id (`REJECT_DUPLICATE`). The next shelf click returns the stored result and does not call Gemma again. A new cook error is a new id, and a new card.
 
-Open [http://localhost:8233](http://localhost:8233) while the dev server is running. That page is the record for the person who started the server: each card, a retry, and a second open that did not ask the model again. The artist does not open it. The help window shows Saved, Restored, or Not saved on the card itself.
+The shelf starts that server in the background the first time a card is saved, using the database file in `.temporal`. An artist does not run the command and does not see a console. The commands below are for the person who wants the monitor open first.
+
+Open [http://localhost:8233](http://localhost:8233) while the dev server is running. That page is optional. It lists one run per card opened with the shelf, a retry, and a second open that did not ask the model again. Selecting another node updates the help and does not add a run. The help window shows Saved, Restored, or Not saved on the card itself.
+
+Temporal's own docs treat `temporal server start-dev` as the local development server, not a production cluster and not a window the artist operates. A production service would be Temporal Cloud or a self-hosted cluster. This tool uses the local server so a Houdini install can recover a card without those steps. The Web UI can be turned off with `--headless`; we leave it on so the monitor stays available.
 
 ### Where the CLI installs
 
@@ -81,11 +85,11 @@ Each line is one card. The same id is the row in the Web UI. Opening the tool on
 
 ### Test the stored card
 
-Leave the dev server and the worker running. Restart Houdini so it loads the current shelf code. Select a node and click **Section card**. The help window opens immediately. A banner under the node name changes from Saving to Saved. That row appears at [http://localhost:8233](http://localhost:8233). Finished cards are easy to miss if the page is filtered to running workflows only. `python -m houdini_wizard.history` prints the same rows.
+Leave the dev server and the worker running. Restart Houdini so it loads the current shelf code. Select a node and click **Section card**. The banner changes from Saving to Saved, and one row appears at [http://localhost:8233](http://localhost:8233). Clicking other nodes updates the help. It does not open a console and it does not add a row.
 
-The window follows the selection, and that follow keeps the card too. The banner stays put when the text size or the value lines update.
+Quit Houdini after the banner says Saved. Open it again, select that same node, and click the shelf. The banner says Restored. The monitor still has one workflow for that id, and the model is not asked again.
 
-Quit Houdini with File > Quit, or end it from Task Manager, after the banner says Saved. Leave the server and the worker running. Open Houdini, select that same node and the same parameter, and click the shelf. The banner changes to Restored. The monitor still has one workflow for that id, and the model is not asked again.
+Short value lines that needed the model are remembered in the Houdini user preferences, so the next session does not ask for them again. They are not a separate workflow.
 
 A named heading never starts the model activity. To see the retry, use a cook error whose text does not contain a help heading, and stop Ollama before the click. The activity in the monitor tries up to three times. Start Ollama again before those attempts run out if you want the card to finish. Closing Houdini during those attempts does not start a second run. The next time you open the tool on that node, it waits for the run already in progress and then shows that result.
 

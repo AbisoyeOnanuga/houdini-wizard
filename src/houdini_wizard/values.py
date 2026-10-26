@@ -12,6 +12,7 @@ import os
 import re
 import threading
 import urllib.request
+from pathlib import Path
 
 from houdini_wizard.context import _effect_clause, _value_guide, plain
 from houdini_wizard.pick import DEFAULT_MODEL, _skill
@@ -19,9 +20,51 @@ from houdini_wizard.pick import DEFAULT_MODEL, _skill
 _CACHE: dict[tuple, str] = {}
 _SKIP: set[tuple] = set()
 _JOB = {"running": False}
+_LOADED = False
+
+
+def _cache_path() -> Path:
+    root = os.environ.get("HOUDINI_USER_PREF_DIR")
+    if root:
+        return Path(root) / "houdini_wizard" / "guides.json"
+    return Path(__file__).resolve().parents[2] / ".temporal" / "guides.json"
+
+
+def _load_cache() -> None:
+    global _LOADED
+    if _LOADED:
+        return
+    _LOADED = True
+    path = _cache_path()
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+    for token, text in data.items():
+        try:
+            key = tuple(json.loads(token))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(text, str) and text:
+            _CACHE[key] = text
+
+
+def _save_cache() -> None:
+    path = _cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {json.dumps(list(key), ensure_ascii=False): text for key, text in _CACHE.items()}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        return
 
 
 def attach_guides(scene: dict, sections, allow_model: bool) -> None:
+    _load_cache()
     ranges = scene.get("ranges") or {}
     tooltips = scene.get("tooltips") or {}
     guides: dict[str, str] = {}
@@ -101,6 +144,7 @@ def _schedule(pending: list[dict]) -> None:
             else:
                 _SKIP.add(item["key"])
         if changed:
+            _save_cache()
             from houdini_wizard.shelf import note_guides_ready
 
             note_guides_ready()
