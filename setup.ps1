@@ -31,3 +31,5 @@ Write-Host "Installed. Restart Houdini. The shelf tab is Houdini Wizard, and the
 Write-Host "Opening the tool starts recovery in the background. Session log and Developer monitor are buttons on the panel."
 Write-Host "Quotes work without a model. For heading picks, install Ollama, then run: ollama pull gemma3:4b"
 Write-Host "The steps are in README.md under Ollama and Gemma."
+Write-Host "To ask why this code exists, run: python -m houdini_wizard.why"
+Write-Host "That page is separate from the shelf. It needs the Entire CLI and entire login. The same checkpoints are on entire.com."

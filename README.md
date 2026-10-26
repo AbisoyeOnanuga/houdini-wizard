@@ -96,10 +96,14 @@ Short value lines that needed the model are remembered in the Houdini user prefe
 
 ## Why the code exists
 
-Entire records the agent session that built this tool. The shelf click does not call it. A technical reader asks from this repository:
+Entire records the agent session that built this tool. The shelf does not open it and does not call Entire.
+
+From this repository, with no question, a local page opens at [http://127.0.0.1:8245](http://127.0.0.1:8245):
 
 ```powershell
-python -m houdini_wizard.why "why a named heading skips Gemma"
+python -m houdini_wizard.why
 ```
 
-With no question, the same command lists the checkpoints for the build, each tied to the commit it produced. One checkpoint, `01M5QRE9FZAKB6Q9V2K6HRS78R`, is the session where the card became one Temporal workflow: the heading pick is an activity with three attempts, and a heading that is already named never becomes that activity. `entire checkpoint explain <id>` opens that session. The artist-facing card stays the help quote.
+Type a question, or use one of the three already on the page. Each match is a checkpoint: the message, the files, and the agent tokens recorded for that change. The transcript stays in Entire. A question on the command line still prints the same matches.
+
+The page needs the [Entire CLI](https://docs.entire.com/installation) and `entire login`. Checkpoints sync to the git remote when the repo is pushed. The same history is on [entire.com](https://entire.com/gh/AbisoyeOnanuga/houdini-wizard): sign in, open this repository, and use Search. One checkpoint, `01M5QRE9FZAKB6Q9V2K6HRS78R`, is where the card became one Temporal workflow.

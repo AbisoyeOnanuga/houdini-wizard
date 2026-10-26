@@ -599,9 +599,10 @@ function renderCards(rows) {
   summary.hidden = true;
   jobs.hidden = true;
   flow.hidden = false;
-  empty.hidden = rows.length > 0;
+  const cards = rows.filter(function (item) { return item.title !== "Model"; }).slice().reverse();
+  empty.hidden = cards.length > 0;
   empty.textContent = "Open the tool on a node. Saved cards show up here.";
-  flow.replaceChildren(...rows.map(entry));
+  flow.replaceChildren(...cards.map(entry));
 }
 function renderModel(rows) {
   flow.hidden = true;

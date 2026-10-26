@@ -536,6 +536,58 @@ def check_userlog() -> None:
     print()
 
 
+def check_why() -> None:
+    """The why page keeps prompts out and only accepts a checkpoint id."""
+    from houdini_wizard.why import _rank, accept_checkpoint, shape_detail, shape_hit
+
+    if not accept_checkpoint("01M5QRE9FZAKB6Q9V2K6HRS78R"):
+        fail("a real checkpoint id was rejected")
+    if accept_checkpoint("e96d75ea-ea02-4990-b94a-81678a4c1465") or accept_checkpoint("rm -rf /"):
+        fail("a session id was accepted as a checkpoint")
+    hit = shape_hit(
+        {
+            "id": "e96d75ea-ea02-4990-b94a-81678a4c1465",
+            "type": "session",
+            "title": "Temporal",
+            "prompt": "secret prompt body",
+        }
+    )
+    if hit.get("title") != "Temporal" or "prompt" in hit or "secret" in str(hit):
+        fail("the why page kept a prompt")
+    card = shape_detail(
+        {
+            "checkpoint_id": "01M5QRE9FZAKB6Q9V2K6HRS78R",
+            "branch": "main",
+            "files_touched": ["src/houdini_wizard/workflow.py", {"path": "README.md"}],
+            "prompts": ["do not keep this transcript"],
+            "sessions": [
+                {
+                    "agent": "Cursor",
+                    "model": "grok",
+                    "token_usage": {"input_tokens": 10, "output_tokens": 2},
+                    "prompt": "do not keep",
+                }
+            ],
+        },
+        commit="a" * 40,
+        dashboard="https://entire.com/gh/AbisoyeOnanuga/houdini-wizard",
+    )
+    if card["files"] != ["src/houdini_wizard/workflow.py", "README.md"]:
+        fail("the checkpoint card left out a file")
+    if card["sessions"][0]["input_tokens"] != 10 or "do not keep" in str(card):
+        fail("the checkpoint card kept a transcript")
+    if not card["commit_url"].endswith("/commit/" + "a" * 40):
+        fail("the checkpoint card left out the entire.com commit")
+    ranked = _rank(
+        "named heading skips Gemma",
+        [{"id": "a", "message": "Enhance documentation"}, {"id": "b", "message": "A named heading skips Gemma"}],
+    )
+    if ranked[0]["id"] != "b":
+        fail("the why page did not put the matching checkpoint first")
+    print("Why page: prompts left out, checkpoint id checked.")
+    print()
+
+
 def check_ui_thread() -> None:
     """The shelf runs while Houdini's loop is already running."""
     from houdini_wizard.shelf import _run_async
@@ -561,6 +613,7 @@ def main() -> None:
     check_install()
     check_memory()
     check_userlog()
+    check_why()
     check_ui_thread()
     asyncio.run(check_restore())
     print("Fixture passed.")
